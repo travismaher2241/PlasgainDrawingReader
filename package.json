@@ -1,0 +1,27 @@
+{
+  "name": "plasgaindrawingreader",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "node --test",
+    "dev": "vite --host 0.0.0.0",
+    "build": "vite build"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/travismaher2241/PlasgainDrawingReader.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/travismaher2241/PlasgainDrawingReader/issues"
+  },
+  "homepage": "https://github.com/travismaher2241/PlasgainDrawingReader#readme",
+  "dependencies": {
+    "pdfjs-dist": "^6.5.438",
+    "vite": "^8.3.8"
+  }
+}

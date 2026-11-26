@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en-AU">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Plasgain Drawing Takeoff</title></head>
+<body>
+<header><div class="brand"><span aria-hidden="true">P</span> Plasgain <small>Estimating workspace</small></div></header>
+<main>
+<section class="intro"><h1>Drawing takeoff</h1><p>Upload drawings, review the takeoff against the source, and export verified items for quoting.</p></section>
+<section class="inputs" aria-label="Project inputs">
+<label>Project name<input id="project" placeholder="Enter a project name"></label>
+<label>Drawing PDFs<input id="drawings" type="file" accept=".pdf,application/pdf" multiple></label>
+<label>Item List CSV<input id="catalogue" type="file" accept=".csv,text/csv"><small id="catalogue-status">Required for SKU matching</small></label>
+</section>
+<section class="panel"><div class="bar"><h2>Drawing pages</h2><button id="scan" disabled>Scan selected pages</button></div>
+<div id="pages" class="pages"><p>Upload a PDF to select the sheets to scan.</p></div></section>
+<p id="status" role="status" aria-live="polite"></p>
+<section class="workspace">
+<div class="panel"><div class="bar"><h2>Source drawing</h2><span id="page-title"></span></div>
+<div class="viewer" id="viewer"><p>Select a drawing page or takeoff row.</p></div></div>
+<div class="panel"><div class="bar"><h2>Takeoff review</h2><div class="actions"><button id="add" class="secondary" disabled>Add item</button><button id="export" disabled>Export verified CSV</button></div></div>
+<div id="review"><p class="empty">Scanned items will appear here for verification.</p></div></div>
+</section>
+</main>
+<script type="module" src="/src/app.js"></script>
+</body></html>
