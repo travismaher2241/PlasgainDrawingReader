@@ -3,14 +3,12 @@
 // label ("BID PO ...") ticked off against its light, and a key. Used for the
 // on-screen viewer and for the downloadable marked-up PNG.
 
-export const MARK_STYLES = [
-  {colour: '#d1241f', shape: 'circle'},
-  {colour: '#1f4fd1', shape: 'square'},
-  {colour: '#0f8a3c', shape: 'diamond'},
-  {colour: '#b5179e', shape: 'triangle'},
-  {colour: '#c25e00', shape: 'circle'},
-  {colour: '#00838f', shape: 'square'},
-];
+// Six colours and four shapes give 24 different markers. The first six light
+// types each get a new colour and shape; later types reuse a colour with a
+// different shape, so no two types on a job look the same.
+const COLOURS = ['#d1241f', '#1f4fd1', '#0f8a3c', '#b5179e', '#c25e00', '#00838f'];
+const SHAPES = ['circle', 'square', 'diamond', 'triangle'];
+export const MARK_STYLES = Array.from({length: 24}, (_, i) => ({colour: COLOURS[i % 6], shape: SHAPES[(i + Math.floor(i / 6)) % 4]}));
 const LABEL_OK = '#0f8a3c';
 const LABEL_MISSING = '#d1241f';
 
