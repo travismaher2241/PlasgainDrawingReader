@@ -44,8 +44,10 @@ stores the library in `data/library.json`, which is fine for local use.
 
 ## Item List from Ostendo
 
-The library panel shows **Sync from Ostendo** when the server has
-`OSTENDO_API_URL` and `OSTENDO_API_KEY` (the same values as WeeklyFollowUp).
+The uploaded Item List is the main source. Replacing it from Ostendo is off
+by default: the library panel shows **Sync from Ostendo** only when the server
+has `OSTENDO_ITEM_SYNC=on` as well as `OSTENDO_API_URL` and `OSTENDO_API_KEY`
+(the same values as WeeklyFollowUp).
 The sync follows the Ostendo handover guide: server only, read-only
 `GET /tabledata`, `https` to `plasgain.southeastit.com.au:8843` only, a
 45-second timeout, no redirects, and the key scrubbed from every message.
@@ -107,7 +109,12 @@ resolution step by step until each page fits.
    when type and specs line up with one entry. A spec that conflicts with an
    entry rules it out. When a missing spec leaves several options, the SKU
    stays blank and the candidates are listed with the deciding detail. "Or
-   equivalent" wording is matched but flagged. Non-supply work (trenching,
+   equivalent" wording is matched but flagged. Drawing and Item List wording
+   are linked by built-in synonyms (pole = column, mounting height = MH,
+   galvanized = Gal, aero = Aeroscreen, luminaire = lantern, StreetLED3 =
+   StreetLED), lamp wattage agrees within 10% (a 14W lantern is a 13.7 W
+   item), and words the Item List never uses, such as a maker's name, are
+   ignored and named in the reason. Non-supply work (trenching,
    concrete, labour and so on) and exclusion rules are excluded.
 6. **Quantity rules.**
    - Counts take the most reliable source: `schedule > callout > counted > unspecified`.
@@ -149,10 +156,10 @@ Headings are case-insensitive, and common alternatives are accepted (for example
 | --- | --- | --- |
 | `sku` | yes | Plasgain part number |
 | `description` | yes | Include sizes, ratings and material, which matching relies on |
-| `status` | yes | Only `Active` rows are used |
-| `category`, `specifications` | | Extra words and specs for matching |
+| `status` | | Only `Active` rows are used. With no status column every row counts as active |
+| `category`, `subcategory`, `specifications` | | Extra words and specs for matching (`ITEMCATEGORY` and `ITEMSUBCATEGORY` are accepted) |
 | `unit`, `pack_size`, `pack_unit` | | Pack quantity is calculated when `pack_size` > 1 |
-| `drawing_aliases` | | Drawing shorthand and DNSP codes, separated by `|` or `;` |
+| `drawing_aliases` | | Drawing wording, shorthand and DNSP codes for this item, separated by `|` or `;` (for example `70W AERO STREETLED`) |
 | `competitor_equivalents` | | Third-party and legacy codes |
 | `required_accessories` | | SKUs shown as optional add-ons |
 | `exclusion_notes` | | Phrases that mark a drawing item as excluded |

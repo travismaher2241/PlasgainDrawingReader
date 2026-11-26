@@ -19,7 +19,10 @@ const CATALOGUE = readCatalogue([
 
 test('Item List: heading synonyms, active only, no duplicates', () => {
   assert.deepEqual(CATALOGUE.map(item => item.sku), ['P1', 'P3', 'B1', 'C25', 'S10', 'P-BASE', 'PIT1']);
-  assert.throws(() => readCatalogue('sku,description\r\nA,B'), /Missing Item List column: status/);
+  // No status column: every row is taken as active.
+  assert.deepEqual(readCatalogue('Item Code,Description,ITEMCATEGORY,ITEMSUBCATEGORY\r\nA,B,LIGHTING,LANTERNS').map(item => [item.sku, item.status, item.category, item.subcategory]),
+    [['A', 'Active', 'LIGHTING', 'LANTERNS']]);
+  assert.throws(() => readCatalogue('code\r\nA'), /Missing Item List column: description/);
   assert.throws(() => readCatalogue('sku,description,status\r\nA,x,Active\r\na,y,Active'), /duplicate active SKUs/);
 });
 
@@ -212,4 +215,27 @@ test('title block details', () => {
 
 test('CSV export preserves quoted source wording and escapes spreadsheet formulas', () => {
   assert.equal(quoteCsv([['=1+2', 'Schedule "A"', 4]]), '"\'=1+2","Schedule ""A""","4"\r\n');
+});
+
+test('matching: drawing wording links to Item List wording', () => {
+  const list = readCatalogue([
+    'Item Code,Description,ITEMSUBCATEGORY,ITEMCATEGORY',
+    'L13,StreetLED3 13.7w LED SCO with PE Cell,LANTERNS,PUBLIC LIGHTING',
+    'L17,StreetLED3 17w LED SCO with PE Cell,LANTERNS,PUBLIC LIGHTING',
+    'L13A,StreetLED3 13.7w LED Aeroscreen with PE Cell,LANTERNS,PUBLIC LIGHTING',
+    'C9,Standard URD 9.0m MH (10.8/1Kn-5mm Base) Octagonal column c/w 1500mm curve Gal,COLUMN MINOR ROAD,PUBLIC LIGHTING',
+    'C9D,Standard URD 9.0m MH (10.8/1Kn-5mm Base) Octagonal column c/w 1500mm curve Reversed Panel Door Gal,COLUMN MINOR ROAD,PUBLIC LIGHTING',
+    'C5P,Powercor URD 5.5m MH (7.0/1Kn-5mm Base) Octagonal column c/w 500mm curve Gal,COLUMN MINOR ROAD,PUBLIC LIGHTING',
+    'C5A,SP Ausnet URD 5.5m MH (7.0/1Kn-5mm Base) Octagonal column c/w 500mm curve Gal,COLUMN MINOR ROAD,PUBLIC LIGHTING',
+  ].join('\r\n'));
+  // 14W is the nominal rating of a 13.7 W lantern; the maker's name is not in the list.
+  const lantern = matchItem('14W LED SCO SYLVANIA STREETLED LANTERN', list);
+  assert.equal(lantern.sku, 'L13');
+  assert.match(lantern.reason, /ignored: sylvania/);
+  // Pole = column, mounting height = MH, galvanized = Gal; the plain column beats the one with extras.
+  assert.equal(matchItem('9.0m MOUNTING HEIGHT GALVANIZED URD POLE', list).sku, 'C9');
+  // Two network versions fit equally, so the choice is left to the estimator.
+  const pole = matchItem('5.5m MOUNTING HEIGHT GALVANIZED URD POLE', list);
+  assert.equal(pole.sku, '');
+  assert.deepEqual(pole.candidates.sort(), ['C5A', 'C5P']);
 });

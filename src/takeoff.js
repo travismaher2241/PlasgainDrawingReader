@@ -55,7 +55,8 @@ export const ITEM_LIST_COLUMNS = {
   sku: ['sku', 'part_number', 'part_no', 'part', 'item_code', 'item_number', 'item_no', 'code', 'product_code'],
   description: ['description', 'item_description', 'product_description', 'name', 'item_name'],
   status: ['status', 'item_status', 'active', 'lifecycle'],
-  category: ['category', 'product_type', 'type', 'item_type', 'group', 'product_group'],
+  category: ['category', 'itemcategory', 'item_category', 'product_type', 'type', 'item_type', 'group', 'product_group'],
+  subcategory: ['subcategory', 'itemsubcategory', 'item_subcategory', 'sub_category', 'product_subgroup'],
   specifications: ['specifications', 'specs', 'spec', 'attributes', 'dimensions', 'size'],
   unit: ['unit', 'uom', 'unit_of_measure', 'sell_unit'],
   pack_size: ['pack_size', 'pack_qty', 'pack_quantity', 'box_qty', 'units_per_pack'],
@@ -93,14 +94,18 @@ export function catalogueFromRows(rows) {
 
 export function catalogueFromRecords(headers, records) {
   const keys = mapItemListHeaders(headers.map(String));
-  for (const required of ['sku', 'description', 'status']) {
+  for (const required of ['sku', 'description']) {
     if (!keys.includes(required)) {
       throw new Error('Missing Item List column: ' + required + ' (accepted headings: ' + ITEM_LIST_COLUMNS[required].join(', ') + ')');
     }
   }
   const all = records.map(record => Object.fromEntries(keys.map((key, i) => [key, String(record[i] ?? '').trim()])))
     .filter(item => item.sku || item.description);
-  const active = all.filter(item => ACTIVE_STATUS.test(item.status) && item.sku && item.description);
+  // A list without a status column (such as an export of active stock items)
+  // is taken to hold only active items.
+  const hasStatus = keys.includes('status');
+  const active = all.filter(item => (!hasStatus || ACTIVE_STATUS.test(item.status)) && item.sku && item.description)
+    .map(item => hasStatus ? item : {...item, status: 'Active'});
   const seen = new Map();
   for (const item of active) {
     const key = item.sku.toLowerCase();
@@ -119,11 +124,16 @@ const ABBREVIATIONS = {
   galv: 'galvanised', galvanized: 'galvanised', gal: 'galvanised', hdg: 'galvanised',
   alum: 'aluminium', aluminum: 'aluminium', ally: 'aluminium',
   ss: 'stainless', stainles: 'stainless',
-  lum: 'luminaire', luminare: 'luminaire', lumanaire: 'luminaire', luminaires: 'luminaire', lights: 'light',
+  // A lantern and a luminaire are the same thing on lighting drawings.
+  lum: 'lantern', luminare: 'lantern', lumanaire: 'lantern', luminaires: 'lantern', luminaire: 'lantern',
+  lanterns: 'lantern', lights: 'light',
   dia: 'diameter', diam: 'diameter',
   hd: 'heavyduty', 'heavy-duty': 'heavyduty',
   cond: 'conduit', condiut: 'conduit', conduits: 'conduit',
-  poles: 'pole', pits: 'pit', bollards: 'bollard', lids: 'lid', covers: 'cover', brackets: 'bracket',
+  // Item Lists call a light pole a column; drawings usually call it a pole.
+  poles: 'pole', column: 'pole', columns: 'pole', col: 'pole',
+  mh: 'mountingheight', aero: 'aeroscreen', aeroscreens: 'aeroscreen',
+  pits: 'pit', bollards: 'bollard', lids: 'lid', covers: 'cover', brackets: 'bracket',
   outreach: 'outreach', o_reach: 'outreach',
   sw: 'switch', gpo: 'gpo', jb: 'junction', jbox: 'junction',
 };
@@ -132,17 +142,33 @@ const STOPWORDS = new Set(['the', 'and', 'for', 'with', 'per', 'off', 'qty', 'qu
   'new', 'supply', 'install', 'provide', 'refer', 'see', 'note', 'notes', 'from', 'into', 'all', 'only', 'length',
   'schedule', 'callout', 'drawing', 'similar', 'equivalent', 'approved', 'equal', 'typ', 'typical', 'nom', 'nominal']);
 
+const unitScale = unit => /^mm$/i.test(unit) ? 1 : /^cm$/i.test(unit) ? 10 : 1000;
+
 // Convert metric sizes to a single unit and lower-case, keeping digits and dots.
 export function normalize(text) {
   return String(text || '').toLowerCase()
     .replace(/(\d),(\d{3})(?!\d)/g, '$1$2')
-    .replace(/\b(\d+(?:\.\d+)?)\s*(mm|cm|m)\b(?!\w)/g, (_, value, unit) =>
-      String(+(Number(value) * (unit === 'm' ? 1000 : unit === 'cm' ? 10 : 1)).toFixed(3)) + 'mm')
+    .replace(/\b(\d+(?:\.\d+)?)\s*(mm|cm|mtrs?|metres?|meters?|m)\b(?!\w)/g, (_, value, unit) =>
+      String(+(Number(value) * unitScale(unit)).toFixed(3)) + 'mm')
     .replace(/[^a-z0-9.]+/g, ' ').replace(/(?<!\d)\.|\.(?!\d)/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
+// Wording that drawings and Item Lists write differently. Each phrase becomes
+// one word before matching.
+const PHRASES = [
+  [/\bmounting height\b/g, 'mountingheight'],
+  [/\baero screen\b/g, 'aeroscreen'],
+  [/\bstreet led\b/g, 'streetled'],
+  [/\broad led\b/g, 'roadled'],
+];
+
 export function words(text) {
-  return normalize(text).split(' ')
+  let normal = normalize(text);
+  for (const [pattern, replacement] of PHRASES) normal = normal.replace(pattern, replacement);
+  // A product family number ("StreetLED3") is dropped so it matches the
+  // family name on a drawing ("StreetLED").
+  normal = normal.replace(/\b([a-z]{4,})\d\b/g, '$1');
+  return normal.split(' ')
     .map(word => ABBREVIATIONS[word] || word)
     .filter(word => word.length > 2 && !/\d/.test(word) && !STOPWORDS.has(word));
 }
@@ -171,8 +197,8 @@ const wordMatches = (word, other) => word === other ||
 // compared with a 6500 mm Item List entry, and a 150 W light never matches a
 // 100 W light.
 const SPEC_PATTERNS = [
-  {kind: 'size', re: /\b(\d+(?:\.\d+)?)\s*(mm|cm|m)\b(?!\/)/gi, value: (n, u) => n * ({mm: 1, cm: 10, m: 1000}[u.toLowerCase()]), unit: 'mm'},
-  {kind: 'power', re: /\b(\d+(?:\.\d+)?)\s*w\b/gi, value: n => n, unit: 'W'},
+  {kind: 'size', re: /\b(\d+(?:\.\d+)?)\s*(mm|cm|mtrs?|metres?|meters?|m)\b(?!\/)/gi, value: (n, u) => n * unitScale(u), unit: 'mm'},
+  {kind: 'power', re: /\b(\d+(?:\.\d+)?)\s*(?:w|watts?)\b/gi, value: n => n, unit: 'W'},
   {kind: 'current', re: /\b(\d+(?:\.\d+)?)\s*a\b/gi, value: n => n, unit: 'A'},
   {kind: 'voltage', re: /\b(\d+(?:\.\d+)?)\s*v\b/gi, value: n => n, unit: 'V'},
   {kind: 'load', re: /\b(\d+(?:\.\d+)?)\s*kn\b/gi, value: n => n, unit: 'kN'},
@@ -200,7 +226,10 @@ export function parseSpecs(text) {
   return specs;
 }
 
-const sameValue = (a, b) => typeof a === 'number' && typeof b === 'number' ? Math.abs(a - b) <= Math.max(0.5, a * 0.001) : a === b;
+// Lamp wattage on a drawing is nominal (a "14W" lantern is sold as 13.7 W),
+// so power agrees within 10%. Other measures must be the same.
+const sameValue = (a, b, kind) => typeof a === 'number' && typeof b === 'number'
+  ? Math.abs(a - b) <= (kind === 'power' ? Math.max(0.5, Math.max(a, b) * 0.1) : Math.max(0.5, a * 0.001)) : a === b;
 
 function compareSpecs(drawingSpecs, itemSpecs) {
   const conflicts = [], missing = [], agreed = [];
@@ -212,7 +241,7 @@ function compareSpecs(drawingSpecs, itemSpecs) {
       const ok = values.some(value => drawn.includes(value)) ||
         (values.includes('galvanised') && drawn.includes('steel')) || (values.includes('steel') && drawn.includes('galvanised'));
       (ok ? agreed : conflicts).push(kind);
-    } else if (values.some(value => drawn.some(other => sameValue(value, other)))) {
+    } else if (values.some(value => drawn.some(other => sameValue(value, other, kind)))) {
       agreed.push(kind);
     } else {
       conflicts.push(kind);
@@ -322,11 +351,16 @@ export function matchItem(description, catalogue, aliases = {}, options = {}) {
       reason: 'Several active SKUs share this code or description'};
   }
 
-  const drawn = words(description);
-  if (!drawn.length) return none('Low', 'No product type words to match');
+  // Words the Item List never uses (a maker's name such as "Sylvania") can't
+  // tell its items apart, so they don't count against a match.
+  const vocabulary = catalogueWords(catalogue);
+  const allDrawn = words(description);
+  const drawn = allDrawn.filter(word => vocabulary.has(word) || [...vocabulary].some(other => wordMatches(word, other)));
+  if (!allDrawn.length) return none('Low', 'No product type words to match');
+  if (!drawn.length) return none('Low', 'Unmatched: none of these words appear in the Item List');
   const conflicted = [];
   const scored = catalogue.flatMap(item => {
-    const itemWords = words([item.description, item.category, ...list(item.drawing_aliases)].join(' '));
+    const itemWords = wordsOf(item);
     const matched = drawn.filter(word => itemWords.some(other => wordMatches(word, other)));
     if (!matched.length) return [];
     const typeScore = matched.length / drawn.length;
@@ -336,8 +370,10 @@ export function matchItem(description, catalogue, aliases = {}, options = {}) {
     const coverage = ownWords.filter(word => drawn.some(other => wordMatches(word, other))).length / (ownWords.length || 1);
     const specs = compareSpecs(drawingSpecs, itemSpecs(item));
     if (specs.conflicts.length) { conflicted.push({item, specs}); return []; }
-    return [{item, typeScore, coverage, matched, ...specs}];
-  }).sort((a, b) => b.typeScore - a.typeScore || b.coverage - a.coverage || a.missing.length - b.missing.length || b.agreed.length - a.agreed.length);
+    const unmatched = ownWords.filter(word => !drawn.some(other => wordMatches(word, other)));
+    return [{item, typeScore, coverage, matched, unmatched, ...specs}];
+  }).sort((a, b) => b.typeScore - a.typeScore || b.agreed.length - a.agreed.length || b.coverage - a.coverage ||
+    a.missing.length - b.missing.length);
   const weak = scored.filter(entry => entry.typeScore < 0.67 && !(drawn.length === 1 && entry.typeScore === 1));
   const strongEnough = scored.filter(entry => !weak.includes(entry));
 
@@ -355,13 +391,25 @@ export function matchItem(description, catalogue, aliases = {}, options = {}) {
   const generic = drawn.length < 2 && !Object.keys(drawingSpecs).length;
   const candidates = strongEnough.slice(0, 3).map(entry => entry.item.sku);
 
-  if (ties.length === 1 && !generic && best.typeScore >= 0.8 && !best.missing.length &&
+  // A detail the drawing leaves out only matters when it would pick a
+  // different item: the 1 kN base rating every URD column shares doesn't.
+  const close = strongEnough.filter(entry => entry !== best && entry.typeScore >= best.typeScore - 0.01);
+  const deciders = best.missing.filter(kind => close.some(entry =>
+    describeSpec(kind, itemSpecs(entry.item)[kind] || []) !== describeSpec(kind, itemSpecs(best.item)[kind])));
+  // Another item that fits the drawing just as well is a real choice, unless
+  // it is the same item with extras (a "Reversed Panel Door" version).
+  const rivals = close.filter(entry => entry.agreed.length === best.agreed.length &&
+    !best.unmatched.every(word => entry.unmatched.includes(word)));
+  if (ties.length === 1 && !generic && best.typeScore >= 0.8 && !deciders.length && !rivals.length &&
       (best.agreed.length || !Object.keys(itemSpecs(best.item)).length)) {
-    const strong = best.typeScore === 1 && best.agreed.length > 0 && !orEquivalent;
+    const ignored = allDrawn.filter(word => !drawn.includes(word));
+    const strong = best.typeScore === 1 && best.agreed.length > 0 && !orEquivalent && !best.missing.length && !ignored.length;
     return {sku: best.item.sku, confidence: strong ? 'High' : 'Medium',
       candidates: strongEnough.slice(1, 3).filter(entry => entry.typeScore >= 0.8).map(entry => entry.item.sku),
       reason: 'Type and specs align' + (best.agreed.length ? ' (' + best.agreed.join(', ') + ')' : '') +
         (best.typeScore < 1 ? ' · Some drawing words not in Item List description' : '') +
+        (ignored.length ? ' · Not in Item List, ignored: ' + [...new Set(ignored)].join(', ') : '') +
+        (best.missing.length ? ' · Drawing does not state ' + best.missing.map(kind => kind + ' (' + describeSpec(kind, itemSpecs(best.item)[kind]) + ')').join(', ') + ', check' : '') +
         (orEquivalent ? ' · "Or equivalent" wording on drawing, confirm' : '')};
   }
 
@@ -370,8 +418,20 @@ export function matchItem(description, catalogue, aliases = {}, options = {}) {
   const missingNote = deciding.length ? 'Missing ' + deciding.join(', ') + ' on drawing: ' + ties.slice(0, 3).map(entry =>
     entry.item.sku + ' ' + deciding.map(kind => itemSpecs(entry.item)[kind] ? describeSpec(kind, itemSpecs(entry.item)[kind]) : '').join(' ').trim()).join(' / ') : '';
   const reason = generic ? 'Generic label, choose from candidates' + (missingNote ? ' · ' + missingNote : '') :
-    missingNote || (ties.length > 1 ? 'Several active SKUs fit equally, choose one' : 'Partial description match, check type and specs');
+    missingNote || (ties.length > 1 || rivals.length ? 'Several active SKUs fit equally, choose one' : 'Partial description match, check type and specs');
   return {sku: '', confidence: best.typeScore >= 0.8 && !generic ? 'Medium' : 'Low', candidates, reason, missing: deciding};
+}
+
+const wordCache = new WeakMap();
+function wordsOf(item) {
+  if (!wordCache.has(item)) wordCache.set(item, words([item.description, item.category, item.subcategory, ...list(item.drawing_aliases)].join(' ')));
+  return wordCache.get(item);
+}
+
+const vocabularyCache = new WeakMap();
+function catalogueWords(catalogue) {
+  if (!vocabularyCache.has(catalogue)) vocabularyCache.set(catalogue, new Set(catalogue.flatMap(wordsOf)));
+  return vocabularyCache.get(catalogue);
 }
 
 const specCache = new WeakMap();

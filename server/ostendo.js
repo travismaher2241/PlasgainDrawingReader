@@ -14,6 +14,10 @@ const TIMEOUT_MS = 45_000;
 export const itemTable = () => (process.env.OSTENDO_ITEM_TABLE || 'ITEMMASTER').trim().toUpperCase();
 export const configured = () => Boolean(process.env.OSTENDO_API_URL?.trim() && process.env.OSTENDO_API_KEY?.trim());
 
+// The uploaded Item List is the main source. Replacing it from Ostendo is
+// switched on only when OSTENDO_ITEM_SYNC is set (on, yes, true or 1).
+export const syncEnabled = () => configured() && /^(1|on|yes|true)$/i.test(process.env.OSTENDO_ITEM_SYNC?.trim() || '');
+
 export class OstendoError extends Error {
   constructor(message, kind) {
     super(sanitize(message));
