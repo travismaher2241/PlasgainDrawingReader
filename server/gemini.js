@@ -6,6 +6,9 @@ import {GoogleGenAI} from '@google/genai';
 import {EXTRACTION_SCHEMA} from '../src/grounding.js';
 
 export const MODEL = process.env.GEMINI_MODEL || 'gemini-3.1-pro-preview';
+// Model actually used: MODEL, or the best available Pro model if MODEL is not offered to this key.
+let activeModel = MODEL;
+export const currentModel = () => activeModel;
 
 export const INSTRUCTIONS = `You read engineering drawing sheets (lighting, civil and electrical) for Plasgain's estimating team.
 List every potentially supplyable product or material shown on this ONE page: luminaires, poles, brackets, bollards, pits and lids, conduits, cables, pillars, switchboards, fittings, fixings and similar.
@@ -30,7 +33,10 @@ let client;
 export const configured = () => Boolean(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY);
 
 function genai() {
-  client ||= new GoogleGenAI({apiKey: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY});
+  // Preview models and per-image media resolution are only served on v1beta;
+  // the SDK's own default is v1.
+  client ||= new GoogleGenAI({apiKey: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY,
+    apiVersion: process.env.GEMINI_API_VERSION || 'v1beta'});
   return client;
 }
 
@@ -47,8 +53,8 @@ export async function extractPage({images, lines, page}) {
       '\n\nThis page has no PDF text layer, so read everything from the images.') +
     '\n\nList the supplyable items on this page following the rules.'});
 
-  const response = await genai().models.generateContent({
-    model: MODEL,
+  const request = model => genai().models.generateContent({
+    model,
     contents: [{role: 'user', parts}],
     config: {
       systemInstruction: INSTRUCTIONS,
@@ -57,6 +63,17 @@ export async function extractPage({images, lines, page}) {
       thinkingConfig: {thinkingLevel: 'HIGH'},
     },
   });
+  let response;
+  try {
+    response = await request(activeModel);
+  } catch (error) {
+    if (!isNotFound(error)) throw error;
+    const fallback = await bestAvailableModel(activeModel);
+    if (!fallback) throw error;
+    console.warn('Gemini model ' + activeModel + ' is not available to this key; using ' + fallback);
+    activeModel = fallback;
+    response = await request(activeModel);
+  }
   const text = response.text;
   if (!text) {
     const reason = response.candidates?.[0]?.finishReason || response.promptFeedback?.blockReason || 'no answer';
@@ -67,4 +84,25 @@ export async function extractPage({images, lines, page}) {
   } catch {
     throw new Error('The AI answer was not valid JSON');
   }
+}
+
+const isNotFound = error => error?.status === 404 || /NOT_FOUND|is not found/i.test(String(error?.message));
+
+// Ranks the key's models: newest Gemini version first, Pro before Flash, stable before preview.
+export function rankModels(names) {
+  const score = name => {
+    const version = Number(name.match(/gemini-(\d+(?:\.\d+)?)/)?.[1] || 0);
+    return version * 100 + (/-pro/.test(name) ? 20 : /-flash(?!-lite)/.test(name) ? 10 : 0) + (/preview|exp/.test(name) ? 0 : 1);
+  };
+  return names.filter(name => /^gemini-\d/.test(name) && !/(tts|image|audio|live|embedding|lite|computer)/.test(name))
+    .sort((a, b) => score(b) - score(a));
+}
+
+async function bestAvailableModel(missing) {
+  const names = [];
+  const pager = await genai().models.list({config: {pageSize: 100}});
+  for await (const model of pager) {
+    if (!model.supportedActions || model.supportedActions.includes('generateContent')) names.push(String(model.name).replace(/^models\//, ''));
+  }
+  return rankModels(names).find(name => name !== missing) || null;
 }

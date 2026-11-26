@@ -60,7 +60,7 @@ export function createHandler({dataDir = process.env.DATA_DIR || (process.env.VE
   const routes = {
     'GET /api/health': async () => {
       const engine = reader ?? await import('./gemini.js');
-      return {ok: true, ai: engine.configured(), model: engine.configured() ? engine.MODEL : '', passcode: !!passcode,
+      return {ok: true, ai: engine.configured(), model: engine.configured() ? (engine.currentModel?.() || engine.MODEL) : '', passcode: !!passcode,
         storage: store.kind === 'file' && process.env.VERCEL ? 'temporary' : store.kind, ostendo: ostendo.configured()};
     },
     'POST /api/extract': async request => {

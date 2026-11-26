@@ -57,3 +57,9 @@ test('spreadsheet title rows above the headings are skipped', () => {
   const items = catalogueFromRows([['Plasgain Item List', null], ['Exported 2026'], ['Item Code', 'Item Description', 'Status'], ['A1', 'Pit lid', 'Active'], ['A2', 'Old lid', 'Inactive']]);
   assert.deepEqual(items.map(entry => entry.sku), ['A1']);
 });
+
+test('Gemini fallback prefers the newest stable Pro model', async () => {
+  const {rankModels} = await import('../server/gemini.js');
+  assert.deepEqual(rankModels(['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-3-pro-preview', 'gemini-3-flash-preview', 'gemini-2.5-flash-image', 'text-embedding-004', 'gemini-2.5-flash-lite']),
+    ['gemini-3-pro-preview', 'gemini-3-flash-preview', 'gemini-2.5-pro', 'gemini-2.5-flash']);
+});
