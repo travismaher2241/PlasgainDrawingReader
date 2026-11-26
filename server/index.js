@@ -8,6 +8,7 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {groundExtraction} from '../src/grounding.js';
 import {createStore} from './store.js';
+import * as ostendoClient from './ostendo.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const MAX_BODY = 40 * 1024 * 1024;
@@ -48,14 +49,19 @@ const sameText = (a, b) => {
 
 // Request handler shared by the local server and the Vercel function.
 export function createHandler({dataDir = process.env.DATA_DIR || (process.env.VERCEL ? '/tmp/plasgain' : path.join(here, '..', 'data')),
-  staticDir = path.join(here, '..', 'dist'), ai, store = createStore(dataDir), passcode = process.env.APP_PASSCODE} = {}) {
+  staticDir = path.join(here, '..', 'dist'), ai, store = createStore(dataDir), passcode = process.env.APP_PASSCODE,
+  ostendo = {configured: ostendoClient.configured, read: ostendoClient.readTable}} = {}) {
   const reader = ai ?? null;
+  const readItems = () => {
+    if (!ostendo.configured()) throw new HttpError(503, 'Ostendo is not connected. Set OSTENDO_API_URL and OSTENDO_API_KEY on the server.');
+    return ostendo.read(ostendoClient.itemTable(), process.env.OSTENDO_ITEM_CONDITION || '');
+  };
 
   const routes = {
     'GET /api/health': async () => {
       const engine = reader ?? await import('./gemini.js');
       return {ok: true, ai: engine.configured(), model: engine.configured() ? engine.MODEL : '', passcode: !!passcode,
-        storage: store.kind === 'file' && process.env.VERCEL ? 'temporary' : store.kind};
+        storage: store.kind === 'file' && process.env.VERCEL ? 'temporary' : store.kind, ostendo: ostendo.configured()};
     },
     'POST /api/extract': async request => {
       const engine = reader ?? await import('./gemini.js');
@@ -74,6 +80,17 @@ export function createHandler({dataDir = process.env.DATA_DIR || (process.env.VE
       if (!Array.isArray(items) || !items.every(item => item?.sku && item?.description)) throw new HttpError(400, 'items must list sku and description');
       return store.setItemList(String(fileName || ''), items);
     },
+    // Replaces the Item List with Ostendo's active items. Read-only on the Ostendo side.
+    'POST /api/library/item-list/ostendo': async () => {
+      const rows = await readItems();
+      const current = await store.load();
+      const result = ostendoClient.itemsFromOstendo(rows, current.itemList.items || []);
+      if (!result.items.length) throw new HttpError(502, 'Ostendo returned no active items (' + rows.length + ' rows read, ' + result.statusRule + ').');
+      const library = await store.setItemList('Ostendo ' + ostendoClient.itemTable(), result.items);
+      return {...library, sync: {count: result.items.length, read: rows.length, inactive: result.inactive, statusRule: result.statusRule, columns: result.columns}};
+    },
+    // Column names and status values only, for checking the mapping. No item rows.
+    'GET /api/ostendo/item-columns': async () => ostendoClient.describeColumns(await readItems()),
     'PUT /api/library/aliases': async request => {
       const {aliases} = await body(request);
       if (!aliases || typeof aliases !== 'object') throw new HttpError(400, 'aliases must be an object');
