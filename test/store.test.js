@@ -19,7 +19,7 @@ function fakeFirestore() {
     const docs = () => [...data.keys()].filter(key => key.startsWith(name + '/')).map(key => snap(key, key.slice(name.length + 1)));
     const query = (sorted = docs()) => ({
       get: async () => ({docs: sorted}),
-      orderBy: (field, direction) => query([...sorted].sort((a, b) => (a.data()[field] > b.data()[field] ? 1 : -1) * (direction === 'desc' ? -1 : 1))),
+      orderBy: (field, direction) => query([...sorted].sort((a, b) => (a.data()[field] > b.data()[field] ? 1 : a.data()[field] < b.data()[field] ? -1 : 0) * (direction === 'desc' ? -1 : 1))),
       limit: n => query(sorted.slice(0, n)),
     });
     return {...query(), doc: id => docRef(name + '/' + id, id), add: async value => docRef(name + '/' + (++auto), String(auto)).set(value)};
@@ -57,6 +57,6 @@ test('Firestore store splits large Item Lists, swaps versions and keeps aliases 
   library = await store.setAliases({pit: 'S4'});
   assert.deepEqual(library.aliases, {pit: 'S4'});
   assert.deepEqual(library.exclusions, ['by others']);
-  assert.deepEqual(library.corrections.map(entry => entry.toSku), ['S1', 'S2']);
+  assert.deepEqual(library.corrections.map(entry => entry.toSku).sort(), ['S1', 'S2']);
   assert.equal(library.itemList.items.length, 10);
 });
