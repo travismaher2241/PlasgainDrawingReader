@@ -171,6 +171,21 @@ light and its pole, the pole label tally and the label schedule check.
 PNG with the key in a band above it, all in one zip file (a single sheet
 downloads as a plain PNG). **‹ Prev** and **Next ›** step through the sheets.
 
+## Trench length from conduit runs
+
+Each sheet gets a **Trench length** line (in metres) when its legend has a
+CABLE CONDUIT entry. The reader takes the colour and weight of the legend's
+sample line, collects every line drawn that way on the sheet, joins the
+dashes into runs, counts conduits lying side by side (within 2.5 m) once, and
+converts to metres with the sheet's scale bar ("SCALE OF METRES" with 0 ...
+50 above it), or a written 1:N scale when there is no bar. The measured runs
+are drawn in green on the viewer and the marked-up PNGs. The line is not
+matched to the Item List automatically; choose a SKU if it should be quoted.
+Details drawn at another scale on the same sheet may be included, so check
+the green lines.
+
+Cables from cable schedules and callouts are left out of the takeoff.
+
 ## Item List format
 
 Upload CSV or Excel (`.xlsx`). Title rows above the headings are skipped.
