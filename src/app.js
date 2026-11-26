@@ -5,6 +5,7 @@ import {
   accessoriesFor, catalogueFromRows, compareRevision, exclusionTerms, extractRows, extractScheduleRows, list, matchItem, normalize,
   packs, parseTitleBlock, quoteCsv, quoteLines, readCatalogue, reconcile,
 } from './takeoff.js';
+import {findSymbol, legendTemplates, pathPrimitives} from './symbols.js';
 import './style.css';
 
 pdf.GlobalWorkerOptions.workerSrc = worker;
@@ -213,15 +214,16 @@ async function showPage(page, row) {
   syncButtons();
   try {
     const viewport = await renderPage(page, canvas, 1800 * Math.min(zoom, 2.5));
-    if (row?.point) {
-      const [x, y] = viewport.convertToViewportPoint(...row.point);
+    const points = row?.points?.length ? row.points : row?.point ? [row.point] : [];
+    points.forEach((point, index) => {
+      const [x, y] = viewport.convertToViewportPoint(...point);
       const marker = element('span', '', 'marker' + (row.approximate ? ' approximate' : ''));
-      marker.title = (row.approximate ? 'Approximate location: ' : '') + row.text;
+      marker.title = (row.approximate ? 'Approximate location: ' : '') + row.text + (points.length > 1 ? ' (' + (index + 1) + ' of ' + points.length + ')' : '');
       marker.style.left = (x / viewport.width * 100) + '%';
       marker.style.top = (y / viewport.height * 100) + '%';
       figure.append(marker);
-      if (figure.isConnected) marker.scrollIntoView({block: 'center', inline: 'center'});
-    }
+      if (index === 0 && figure.isConnected) marker.scrollIntoView({block: 'center', inline: 'center'});
+    });
   } catch (error) {
     if (figure.isConnected) figure.replaceChildren(element('p', 'Page could not be rendered. ' + error.message));
   }
@@ -424,6 +426,49 @@ function readPageFromText(page) {
   return {rows: [...table, ...extractRows(page.lines.filter(line => !tableLines.has(line.text)))], dropped: 0};
 }
 
+/* ------------------------------------------------ legend symbol counting */
+
+const LIGHT_OR_POLE = /\b(lantern|luminaire|streetled|street ?light|light(ing)? pole|pole|column|outreach)\b/i;
+
+async function pageVectors(page) {
+  if (!page.vectors) {
+    const [operators, text] = await Promise.all([page.pdf.getOperatorList(), page.pdf.getTextContent()]);
+    const primitives = pathPrimitives(operators, pdf.OPS);
+    page.vectors = {primitives, legends: legendTemplates(text.items, primitives)};
+  }
+  return page.vectors;
+}
+
+// Counts each lighting legend symbol on the selected pages. A page uses its own
+// legend, or else the legend from another sheet of the same PDF.
+async function countLegendSymbols(selected, notes) {
+  const rowsByPage = new Map();
+  for (const page of pages) {
+    try { await pageVectors(page); } catch { page.vectors = {primitives: [], legends: []}; }
+  }
+  for (const page of selected) {
+    const own = page.vectors.legends;
+    const legends = own.length ? own : pages.filter(other => other.file === page.file && other.vectors.legends.length)[0]?.vectors.legends || [];
+    const found = [];
+    for (const legend of legends) {
+      const hits = findSymbol(legend.template, page.vectors.primitives);
+      if (!hits.length) continue;
+      const points = hits.map(hit => [hit.x, hit.y]);
+      const base = {pageId: page.id, point: points[0], points, approximate: false, source: 'counted', location: 'plan',
+        locationNote: 'legend symbol', quantity: hits.length, unit: 'ea', baseNote: '', typical: false, extractConfidence: 'Medium',
+        extractNote: 'Counted ' + hits.length + ' legend symbols on the sheet (' + (own.length ? 'legend on this sheet' : 'legend from p' +
+          pages.find(other => other.vectors.legends === legends)?.number) + '). Check the markers.'};
+      found.push({...base, text: legend.label + (legend.pole ? ' / ' + legend.pole : ''), description: legend.label});
+      if (legend.pole) found.push({...base, text: legend.pole + ' (for ' + legend.label + ')', description: legend.pole.replace(/^(ON|MOUNTED ON)\s+(A|AN)\s+/i, '')});
+    }
+    if (found.length) {
+      rowsByPage.set(page.id, found);
+      notes.push(page.file + ' p' + page.number + ': ' + found.filter(row => row.description === row.text.split(' / ')[0]).map(row => row.quantity + ' × ' + row.description).join(', '));
+    }
+  }
+  return rowsByPage;
+}
+
 byId('scan').onclick = async () => {
   if (rows.length && !window.confirm('Replace the current takeoff with a new reading?')) return;
   scanning = true;
@@ -434,6 +479,8 @@ byId('scan').onclick = async () => {
   const selected = pages.filter(page => page.selected);
   let aiStopped = '';
   try {
+    status('Looking for lighting legend symbols…');
+    const legendRows = await countLegendSymbols(selected, notes);
     for (const [index, page] of selected.entries()) {
       status('Reading ' + page.file + ' p' + page.number + ' (' + (index + 1) + ' of ' + selected.length + ')' + (health.ai ? ' with the AI reader…' : '…'));
       let result;
@@ -455,7 +502,11 @@ byId('scan').onclick = async () => {
       }
       if (!page.lines.length && !health.ai) notes.push('No readable text on ' + page.file + ' p' + page.number + ', review it manually');
       if (result.dropped) notes.push(result.dropped + ' AI items on p' + page.number + ' had no source wording and were discarded');
-      for (const row of result.rows) next.push({...row, id: nextRowId++, pageId: page.id});
+      // Legend symbol counts replace the reader's own guesses at lights and poles on that sheet;
+      // a written schedule still wins.
+      const counted = legendRows.get(page.id) || [];
+      const kept = counted.length ? result.rows.filter(row => row.source === 'schedule' || !LIGHT_OR_POLE.test(row.description)) : result.rows;
+      for (const row of [...counted, ...kept]) next.push({...row, id: nextRowId++, pageId: page.id});
     }
     next.forEach(applyMatch);
     rows = reconcile(next, pages);

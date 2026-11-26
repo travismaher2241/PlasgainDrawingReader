@@ -86,11 +86,21 @@ resolution step by step until each page fits.
    text. Gemini only *extracts*: description, exact source wording, location,
    count method (`schedule`, `callout`, `counted`, `unspecified`), quantity or
    length, and any uncertainty. It is never asked for Plasgain part numbers.
-3. **Grounding check.** The server checks each AI item against the page.
+3. **Legend symbol counts.** On vector (CAD) PDFs, the app finds lighting
+   legend lines such as *14W LED ... LANTERN / ON A 5.5m ... POLE*, takes the
+   symbol drawn beside each one, and counts every copy of that shape on the
+   plan, in any rotation or mirror image (`src/symbols.js`). Each legend line
+   gives a luminaire row and a pole row with the count, and clicking the row
+   marks every symbol found on the sheet. A sheet without its own legend uses
+   the legend from another sheet of the same PDF. These counts replace the
+   reader's own guesses at lights and poles on that sheet, though a written
+   schedule still wins. Scanned sheets have no vector paths, so they still rely
+   on the AI reader.
+4. **Grounding check.** The server checks each AI item against the page.
    Items with no source wording are dropped. Wording that isn't in the PDF
    text, or a total that differs from the written quantity, lowers the
    confidence and says why. Located wording gives the exact marker position.
-4. **Matching.** Code, not the AI, matches each item against the **active**
+5. **Matching.** Code, not the AI, matches each item against the **active**
    Item List using part numbers, drawing aliases, competitor codes, saved
    correction aliases, descriptions and normalised specifications (sizes in
    mm, W, A, V, kN, K, IP rating, load class, material). A SKU is assigned only
@@ -99,7 +109,7 @@ resolution step by step until each page fits.
    stays blank and the candidates are listed with the deciding detail. "Or
    equivalent" wording is matched but flagged. Non-supply work (trenching,
    concrete, labour and so on) and exclusion rules are excluded.
-5. **Quantity rules.**
+6. **Quantity rules.**
    - Counts take the most reliable source: `schedule > callout > counted > unspecified`.
      Lower-ranked entries for the same item are marked *Potential Duplicate
      (Excluded from Total)*.
@@ -114,16 +124,16 @@ resolution step by step until each page fits.
      upload are flagged as superseded and excluded.
    - Pack SKUs show both the drawing count and the packs to quote. Linked
      accessories show as optional add-ons to check.
-6. **Review.** Rows are colour-coded High, Medium or Low/Unmatched. Clicking a
+7. **Review.** Rows are colour-coded High, Medium or Low/Unmatched. Clicking a
    row's page reference shows the sheet with a marker (dashed when the location
    is approximate). You can edit the description, quantity and unit, pick a
    SKU by typeahead or candidate chip, add or remove rows, override an
    automatic exclusion, and tick Verified.
-7. **Learning loop.** Choosing a different SKU logs the correction and saves
+8. **Learning loop.** Choosing a different SKU logs the correction and saves
    the drawing wording as an alias for future matching. Aliases, exclusion rules
    and the correction log are under *Item List, aliases & exclusion rules* and
    are shared by everyone using the server.
-8. **Export.** *Export quote CSV* combines verified rows into one line per SKU,
+9. **Export.** *Export quote CSV* combines verified rows into one line per SKU,
    with the project, drawing numbers, revisions and status at the top, plus
    page references, source wording, pack quantities and add-ons. *Export full
    takeoff CSV* gives every row with its status, reasons and flags.
@@ -150,6 +160,7 @@ Headings are case-insensitive, and common alternatives are accepted (for example
 ## Code map
 
 - `src/takeoff.js`: matching, quantity, duplicate, revision, pack and export rules (pure functions)
+- `src/symbols.js`: legend symbol extraction and counting from PDF vector paths
 - `src/grounding.js`: AI output schema and the checks applied to it
 - `src/app.js`: browser app (pdf.js viewer, page picker, review workspace)
 - `server/ostendo.js`: read-only Ostendo client and Item List mapping

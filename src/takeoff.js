@@ -398,7 +398,11 @@ export function extractRows(lines) {
       description = match[2];
       quantityText = rawQuantity + (rawUnit ? ' ' + rawUnit : '') + (times ? ' x ' + times : '');
       source = label?.toLowerCase();
-      if (/^\s*[x×]/.test(text.slice(text.indexOf(description) + description.length))) quantityText = 'x' + rawQuantity;
+      if (/^\s*[x×]/.test(text.slice(text.indexOf(description) + description.length))) {
+        // "1.7m x 2.3m" or "679 x 960" is a size, not a count.
+        if (/\d(?:\.\d+)?\s*(?:mm|m)?$/i.test(description) || !/^\d+$/.test(rawQuantity) || rawUnit) return [];
+        quantityText = 'x' + rawQuantity;
+      }
     } else {
       description = leading[2];
       quantityText = leading[1];
@@ -473,7 +477,8 @@ export function parseTitleBlock(text) {
   const status = STATUSES.find(value => upper.includes(value)) || '';
   return {
     project: pick(/\bproject(?:\s+(?:name|title))?\s*[:\-]\s*([^\n|]{3,80})/i),
-    drawingNumber: pick(/\b(?:dwg|drawing|sheet)\s*(?:no\.?|number|#)\s*[:\-]?\s*([A-Z0-9][A-Z0-9\-_./]{2,30})/i),
+    // A drawing number always has a digit, so headings that follow the label (DATE, SCALE) are skipped.
+    drawingNumber: pick(/\b(?:dwg|drawing|sheet)\s*(?:no\.?|number|#)\s*[:\-]?\s*(?=[A-Z0-9\-_./]*\d)([A-Z0-9][A-Z0-9\-_./]{2,30})/i),
     revision: pick(/\brev(?:ision)?\.?\s*(?:no\.?)?\s*[:\-]?\s*([A-Z]{1,2}\d{0,2}|\d{1,3})\b/i),
     status: status === 'FOR TENDER' ? 'TENDER' : status,
   };
