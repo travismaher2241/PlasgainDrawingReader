@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {findSymbol, legendEntries, legendTemplates, pathPrimitives} from '../src/symbols.js';
+import {findSymbol, labelSchedule, legendEntries, legendTemplates, pathPrimitives} from '../src/symbols.js';
 
 const OPS = {save: 1, restore: 2, transform: 3, constructPath: 4};
 const K = 0.5523; // Bezier circle constant
@@ -60,4 +60,20 @@ test('every rotated or mirrored copy of the legend symbol is counted, and nothin
   for (const [x, y] of [[500, 500], [700, 300], [900, 650]]) {
     assert.ok(found.some(([fx, fy]) => Math.hypot(fx - x, fy - y) < 15), 'found the copy at ' + x + ',' + y);
   }
+});
+
+test('label schedule counts P/L pole rows and finds labels missing from the plan', () => {
+  const row = (y, asset, label) => [text(asset, 880, y), text(label, 973, y), text('12', 1070, y)];
+  const items = [
+    text('LABEL SCHEDULE', 934, 436), text('ASSET', 887, 412), text('LABEL', 998, 412), text('TYPE', 1071, 412),
+    ...row(390, 'P/L POLE', 'PO 2602515854'), ...row(368, 'P/L POLE', 'PO 2602515856'), ...row(345, 'P/L POLE', 'PO 2602516195'),
+    ...row(323, 'PP OS LOT 227', 'PP 1234'),
+    text('LABEL TYPE DETAILS AS PER', 900, 200),
+    // labels beside the poles on the plan (rotated text), and a note that mentions another pole
+    {str: 'BID PO 2602515854', transform: [0, 13, -13, 0, 1500, 900]},
+    {str: 'BID PO 2602515856', transform: [13, 0, 0, 13, 1700, 600]},
+    text('23. REMOVE (E) PL BID PO 2602516195', 100, 1000),
+  ];
+  assert.deepEqual(labelSchedule(items), {poles: 3, labels: ['PO 2602515854', 'PO 2602515856', 'PO 2602516195'], missing: ['PO 2602516195']});
+  assert.equal(labelSchedule([text('LIGHTING :', 100, 420)]), null);
 });

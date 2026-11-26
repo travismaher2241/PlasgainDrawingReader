@@ -578,6 +578,7 @@ export function reconcile(rows, pages = []) {
     row.autoExcluded = false;
     row.confidence = lowest(row.matchConfidence || 'High', row.extractConfidence || 'High');
     if (row.extractNote) row.flags.push(row.extractNote);
+    if (row.scheduleNote) row.flags.push(row.scheduleNote);
     if (row.matchExcluded) { row.autoExcluded = true; }
     if (row.quantity == null) {
       row.flags.push(row.unit === 'm' ? 'Length unspecified (as required / TBA), measure or confirm' : 'Quantity unspecified, confirm');
