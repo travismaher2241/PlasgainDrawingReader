@@ -11,6 +11,9 @@ const POLE_WORDS = /\bPOLE|COLUMN|OUTREACH|BRACKET|MOUNTING HEIGHT\b/i;
 
 /* ----------------------------------------------------------- vector paths */
 
+const colourKey = value => typeof value === 'string' ? value.toLowerCase()
+  : '#' + Array.from(value || []).slice(0, 3).map(v => Math.round(v).toString(16).padStart(2, '0')).join('');
+
 const multiply = (m, n) => [m[0] * n[0] + m[2] * n[1], m[1] * n[0] + m[3] * n[1], m[0] * n[2] + m[2] * n[3],
   m[1] * n[2] + m[3] * n[3], m[0] * n[4] + m[2] * n[5] + m[4], m[1] * n[4] + m[3] * n[5] + m[5]];
 
@@ -20,29 +23,30 @@ const multiply = (m, n) => [m[0] * n[0] + m[2] * n[1], m[1] * n[0] + m[3] * n[1]
 // both stay the same when the path is rotated or mirrored.
 export function pathPrimitives(operatorList, OPS) {
   const {fnArray, argsArray} = operatorList;
-  let ctm = [1, 0, 0, 1, 0, 0];
+  let ctm = [1, 0, 0, 1, 0, 0], colour = '#000000';
   const stack = [];
   const out = [];
   for (let i = 0; i < fnArray.length; i++) {
     const fn = fnArray[i];
     const args = argsArray[i];
-    if (fn === OPS.save) stack.push(ctm);
-    else if (fn === OPS.restore) ctm = stack.pop() || ctm;
+    if (fn === OPS.save) stack.push([ctm, colour]);
+    else if (fn === OPS.restore) [ctm, colour] = stack.pop() || [ctm, colour];
     else if (fn === OPS.transform) ctm = multiply(ctm, args);
+    else if (OPS.setStrokeRGBColor !== undefined && fn === OPS.setStrokeRGBColor) colour = colourKey(args?.[0] ?? args);
     else if (fn === OPS.constructPath) {
       const data = args?.[1]?.[0];
-      if (data && typeof data.length === 'number') addSubpaths(data, ctm, out);
+      if (data && typeof data.length === 'number') addSubpaths(data, ctm, out, colour);
     }
   }
   return out;
 }
 
 // pdf.js path data: 0 moveTo x y, 1 lineTo x y, 2 curveTo x1 y1 x2 y2 x y, 3 quadraticCurveTo, 4 closePath.
-function addSubpaths(data, ctm, out) {
+function addSubpaths(data, ctm, out, colour) {
   let points = [];
   let lines = 0, curves = 0, closed = false;
   const flush = () => {
-    if (points.length > 1 && lines + curves > 0) out.push(primitive(points, lines, curves, closed));
+    if (points.length > 1 && lines + curves > 0) out.push({...primitive(points, lines, curves, closed), colour});
     points = []; lines = 0; curves = 0; closed = false;
   };
   const at = (x, y) => [ctm[0] * x + ctm[2] * y + ctm[4], ctm[1] * x + ctm[3] * y + ctm[5]];
@@ -77,13 +81,16 @@ export function legendEntries(items) {
     .map(item => ({text: item.str.trim(), x: item.transform[4], y: item.transform[5], height: Math.abs(item.transform[3]) || 10}));
   const entries = [];
   for (const line of lines) {
-    if (!LEGEND_WORDS.test(line.text) || !/\d+\s*W\b|LANTERN|LUMINAIRE/i.test(line.text) || line.text.length > 90) continue;
+    if (!LEGEND_WORDS.test(line.text) || !/\d+\s*W\b|LANTERN|LUMINAIRE/i.test(line.text) || line.text.length > 160) continue;
     if (/^\d+\.\s/.test(line.text)) continue; // a numbered note, not a legend line
     // The pole wording is usually the next line down, starting at the same x.
     const next = lines.filter(other => Math.abs(other.x - line.x) < 2 && other.y < line.y && line.y - other.y < line.height * 2)
       .sort((a, b) => b.y - a.y)[0];
     const pole = next && POLE_WORDS.test(next.text) && !LEGEND_WORDS.test(next.text.replace(/MOUNTING HEIGHT/i, '')) ? next.text : '';
-    entries.push({label: line.text, pole, x: line.x, y: line.y, height: line.height});
+    // One line can hold both: "... LANTERN AT 5.5m MOUNTING HEIGHT ON A LINCOLN POLE".
+    const split = !pole && line.text.match(/^(.*?\b(?:LANTERN|LUMINAIRE)\b)[\s,]+((?:AT|ON|MOUNTED ON)\b.*\b(?:POLE|COLUMN)\b.*)$/i);
+    if (split) entries.push({label: split[1].trim(), pole: split[2].trim(), x: line.x, y: line.y, height: line.height});
+    else entries.push({label: line.text, pole, x: line.x, y: line.y, height: line.height});
   }
   return entries;
 }
@@ -95,13 +102,20 @@ export function legendSymbol(entry, primitives) {
   const bottom = entry.y - entry.height * 0.6, top = entry.y + entry.height * 1.6;
   const parts = primitives.filter(p => p.length > 0.5 && p.box[0] >= left && p.box[2] <= right && p.box[1] >= bottom && p.box[3] <= top);
   if (parts.length < 2) return null;
-  // Keep the cluster nearest the wording, so another column's symbols don't join in.
-  parts.sort((a, b) => b.box[2] - a.box[2]);
-  const cluster = [parts[0]];
-  for (const part of parts.slice(1)) {
+  // Keep the symbol nearest the wording: parts level with this line of text
+  // (not the entry above or below), in the colour of the part closest to the
+  // words (so a red "*" marker beside it is left out), and side by side
+  // without a wide gap (so another column's symbols don't join in).
+  const textMiddle = entry.y + entry.height * 0.35;
+  const level = parts.filter(p => Math.abs(p.cy - textMiddle) <= entry.height * 0.6);
+  if (level.length < 2) return null;
+  level.sort((a, b) => b.box[2] - a.box[2]);
+  const colour = level[0].colour;
+  const cluster = [level[0]];
+  for (const part of level.slice(1)) {
+    if (part.colour !== colour) continue;
     if (cluster.some(c => part.box[2] >= c.box[0] - entry.height * 0.5 && part.box[0] <= c.box[2] + entry.height * 0.5)) cluster.push(part);
   }
-  if (cluster.length < 2) return null;
   const box = [Math.min(...cluster.map(p => p.box[0])), Math.min(...cluster.map(p => p.box[1])),
     Math.max(...cluster.map(p => p.box[2])), Math.max(...cluster.map(p => p.box[3]))];
   return {parts: cluster, box, cx: (box[0] + box[2]) / 2, cy: (box[1] + box[3]) / 2};
@@ -109,7 +123,12 @@ export function legendSymbol(entry, primitives) {
 
 /* -------------------------------------------------------------- matching */
 
-const sameShape = (a, b) => a.key === b.key && Math.abs(a.length - b.length) <= 0.5 + 0.2 * b.length;
+// Same kind of path, with a length that fits the template part at `scale`.
+const sameShape = (a, b, scale = 1) => a.key === b.key && Math.abs(a.length - b.length * scale) <= 0.5 + 0.2 * b.length * scale;
+
+// Plans are often drawn at a different size from the legend (or the notes
+// symbol), so copies are looked for from half to three times the legend size.
+const MIN_SCALE = 0.5, MAX_SCALE = 3;
 
 function grid(primitives, size) {
   const cells = new Map();
@@ -129,17 +148,19 @@ function grid(primitives, size) {
   };
 }
 
-// Finds every copy of a legend symbol: same parts at the same distances, in any
-// rotation or mirror image, at the legend's scale. Returns [{x, y}] centres in
-// PDF units, leaving out the legend symbol itself.
+// Finds every copy of a legend symbol: same parts at the same relative
+// distances, in any rotation or mirror image, at any one size between half and
+// three times the legend's. Copies at the size most of them share are kept
+// (so a second legend drawn at another size is not counted). Returns [{x, y}]
+// centres in PDF units, leaving out the legend symbol itself.
 export function findSymbol(template, primitives) {
   const parts = template.parts.filter(p => p.length > 0.5);
   if (parts.length < 2) return [];
   const span = Math.max(template.box[2] - template.box[0], template.box[3] - template.box[1]);
   const near = grid(primitives, Math.max(span, 4));
   // Anchor on the rarest part, and orient with the part farthest from it.
-  const candidates = part => primitives.filter(p => sameShape(p, part));
-  const ranked = parts.map(part => ({part, count: candidates(part).length})).sort((a, b) => a.count - b.count);
+  const candidates = part => primitives.filter(p => p.key === part.key && p.length >= part.length * MIN_SCALE * 0.8 && p.length <= part.length * MAX_SCALE * 1.2);
+  const ranked = parts.map(part => ({part, list: candidates(part)})).sort((a, b) => a.list.length - b.list.length);
   const anchor = ranked[0].part;
   const partner = parts.filter(p => p !== anchor).sort((a, b) =>
     Math.hypot(b.cx - anchor.cx, b.cy - anchor.cy) - Math.hypot(a.cx - anchor.cx, a.cy - anchor.cy))[0];
@@ -148,36 +169,45 @@ export function findSymbol(template, primitives) {
   const baseAngle = Math.atan2(partner.cy - anchor.cy, partner.cx - anchor.cx);
   const tolerance = d => 1.2 + 0.08 * d;
   const found = [];
-  for (const a of candidates(anchor)) {
-    for (const b of near(a.cx, a.cy, reach + tolerance(reach))) {
-      if (b === a || !sameShape(b, partner)) continue;
+  for (const a of ranked[0].list) {
+    for (const b of near(a.cx, a.cy, reach * MAX_SCALE + tolerance(reach * MAX_SCALE))) {
+      if (b === a || b.key !== partner.key) continue;
       const distance = Math.hypot(b.cx - a.cx, b.cy - a.cy);
-      if (Math.abs(distance - reach) > tolerance(reach)) continue;
+      const scale = distance / reach;
+      if (scale < MIN_SCALE || scale > MAX_SCALE || !sameShape(a, anchor, scale) || !sameShape(b, partner, scale)) continue;
       const turn = Math.atan2(b.cy - a.cy, b.cx - a.cx);
       for (const mirror of [1, -1]) {
         const rotation = turn - mirror * baseAngle;
         const place = part => {
-          const dx = part.cx - anchor.cx, dy = mirror * (part.cy - anchor.cy);
+          const dx = (part.cx - anchor.cx) * scale, dy = mirror * (part.cy - anchor.cy) * scale;
           return [a.cx + dx * Math.cos(rotation) - dy * Math.sin(rotation), a.cy + dx * Math.sin(rotation) + dy * Math.cos(rotation)];
         };
         const used = new Set([a, b]);
         const ok = parts.every(part => {
           if (part === anchor || part === partner) return true;
           const [x, y] = place(part);
-          const d = Math.hypot(part.cx - anchor.cx, part.cy - anchor.cy);
-          const hit = near(x, y, tolerance(d)).find(p => !used.has(p) && sameShape(p, part));
+          const d = Math.hypot(part.cx - anchor.cx, part.cy - anchor.cy) * scale;
+          const hit = near(x, y, tolerance(d)).find(p => !used.has(p) && sameShape(p, part, scale));
           if (hit) used.add(hit);
           return Boolean(hit);
         });
         if (!ok) continue;
         const [x, y] = place({cx: template.cx, cy: template.cy});
         if (Math.hypot(x - template.cx, y - template.cy) < span) break; // the legend symbol itself
-        if (!found.some(f => Math.hypot(f.x - x, f.y - y) < span * 0.6)) found.push({x, y});
+        if (!found.some(f => Math.hypot(f.x - x, f.y - y) < span * scale * 0.6)) found.push({x, y, scale});
         break;
       }
     }
   }
-  return found;
+  if (!found.length) return [];
+  // Keep the copies at the size most of them share.
+  const sizes = found.map(f => f.scale).sort((p, q) => p - q);
+  let best = sizes[0], bestCount = 0;
+  for (const size of sizes) {
+    const count = sizes.filter(other => Math.abs(other - size) <= size * 0.12).length;
+    if (count > bestCount) { best = size; bestCount = count; }
+  }
+  return found.filter(f => Math.abs(f.scale - best) <= best * 0.12).map(({x, y}) => ({x, y}));
 }
 
 // Legend entries with a symbol template, for one page.
@@ -245,6 +275,26 @@ export function poleLabels(items) {
       return {label: item.str.trim().replace(/\s+/g, ' '), x: e + a / along * (item.width || 0) / 2 + c / 2, y: f + b / along * (item.width || 0) / 2 + d / 2,
         size: across};
     });
+}
+
+// Labels of existing poles, "(E) BID PO 123456...": lights drawn at these are
+// already in the ground and are not part of the supply.
+export function existingPoleLabels(items) {
+  return items.filter(item => /^\s*\(E\)\s*BID\s+PO\s*\d{6,}\s*$/i.test(item.str || ''))
+    .map(item => {
+      const [a, b, c, d, e, f] = item.transform;
+      const along = Math.hypot(a, b) || 1;
+      return {label: item.str.trim().replace(/\s+/g, ' '), x: e + a / along * (item.width || 0) / 2 + c / 2, y: f + b / along * (item.width || 0) / 2 + d / 2,
+        size: Math.hypot(c, d) || 1, existing: true};
+    });
+}
+
+// Two legend symbols are the same drawing when their parts match in kind and size.
+export function sameTemplate(a, b) {
+  if (!a || !b || a.parts.length !== b.parts.length) return false;
+  const sorted = t => t.parts.map(p => [p.key, p.length]).sort((p, q) => p[0].localeCompare(q[0]) || p[1] - q[1]);
+  const x = sorted(a), y = sorted(b);
+  return x.every((p, i) => p[0] === y[i][0] && Math.abs(p[1] - y[i][1]) <= 0.5 + 0.1 * p[1]);
 }
 
 // Pairs pole labels with light symbols one-to-one, pairing as many as

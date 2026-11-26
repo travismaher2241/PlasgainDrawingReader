@@ -72,3 +72,11 @@ test('Gemini quota errors become one plain sentence', async () => {
   const other = new Error('boom');
   assert.equal(friendlyError(other), other);
 });
+
+test('Gemini "high demand" and server errors count as busy, with a plain message', async () => {
+  const {friendlyError, isBusy} = await import('../server/gemini.js');
+  const raw = new Error('{"error":{"code":503,"message":"This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.","status":"UNAVAILABLE"}}');
+  assert.ok(isBusy(raw));
+  assert.ok(!isBusy(new Error('{"error":{"code":400,"message":"API key not valid"}}')));
+  assert.match(friendlyError(raw).message, /^Gemini is busy/);
+});

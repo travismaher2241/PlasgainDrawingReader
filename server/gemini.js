@@ -43,7 +43,9 @@ function genai() {
 }
 
 // images: [{label, mimeType, data(base64)}]; lines: text layer lines [{text}]
-export async function extractPage({images, lines, page}) {
+// `fast` asks for a quicker read (less thinking), used when a busy sheet timed out.
+export async function extractPage({images, lines, page, fast = false}) {
+  const deadline = Date.now() + REQUEST_TIMEOUT_MS;
   const textLayer = (lines || []).map(line => line.text).filter(Boolean).join('\n').slice(0, 60000);
   // Gemini 3 takes a per-image resolution and a thinking level; older models don't.
   const gemini3 = model => /^gemini-([3-9]|\d{2})/.test(model);
@@ -67,9 +69,10 @@ export async function extractPage({images, lines, page}) {
         responseJsonSchema: EXTRACTION_SCHEMA,
         // Flash at HIGH thinking took over 5 minutes on a busy sheet, so Flash
         // thinks at MEDIUM. Pro keeps HIGH.
-        ...(gemini3(model) ? {thinkingConfig: {thinkingLevel: /-flash/.test(model) ? 'MEDIUM' : 'HIGH'}} : {}),
+        // A quick retry thinks at LOW.
+        ...(gemini3(model) ? {thinkingConfig: {thinkingLevel: fast ? 'LOW' : /-flash/.test(model) ? 'MEDIUM' : 'HIGH'}} : {}),
         // Stop before the 300 s server limit so the page gets a clear message.
-        abortSignal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        abortSignal: AbortSignal.timeout(Math.max(1000, deadline - Date.now())),
       },
     });
   };
@@ -79,12 +82,28 @@ export async function extractPage({images, lines, page}) {
   if (activeModel !== MODEL && Date.now() - switchedAt > RECHECK_MS) activeModel = MODEL;
   const tried = new Set();
   let response;
+  // "High demand" (503) and server errors are usually brief: wait and try
+  // again, and after two of them try another Flash model for this page.
+  let model = activeModel, busy = 0;
   for (;;) {
-    tried.add(activeModel);
+    tried.add(model);
     try {
-      response = await request(activeModel);
+      response = await request(model);
       break;
     } catch (error) {
+      if (isBusy(error)) {
+        busy++;
+        const wait = BUSY_WAITS_MS[busy - 1];
+        if (wait === undefined || Date.now() + wait + 20000 > deadline) throw friendlyError(error);
+        console.warn('Gemini ' + model + ' is busy (attempt ' + busy + '); retrying in ' + wait / 1000 + ' s');
+        await new Promise(resolve => setTimeout(resolve, wait));
+        if (busy >= 2) {
+          const other = (await availableModels().catch(() => [])).find(name => !tried.has(name) && /-flash/.test(name));
+          if (other) model = other;
+        }
+        continue;
+      }
+      if (model !== activeModel) throw friendlyError(error);
       const freeTier = isFreeTierBlocked(error);
       if (!isNotFound(error) && !freeTier) throw friendlyError(error);
       if (tried.size >= 4) throw friendlyError(error);
@@ -92,6 +111,7 @@ export async function extractPage({images, lines, page}) {
       if (!fallback) throw friendlyError(error);
       console.warn('Gemini model ' + activeModel + (freeTier ? ' has no free-tier quota' : ' is not available to this key') + '; using ' + fallback);
       activeModel = fallback;
+      model = fallback;
       switchedAt = Date.now();
     }
   }
@@ -108,6 +128,15 @@ export async function extractPage({images, lines, page}) {
 }
 
 const REQUEST_TIMEOUT_MS = Number(process.env.GEMINI_TIMEOUT_MS) || 270000;
+
+const BUSY_WAITS_MS = (process.env.GEMINI_BUSY_WAITS_MS || '3000,8000,15000').split(',').map(Number);
+
+// Gemini overloaded or briefly failing: 503 UNAVAILABLE, 500 INTERNAL, 504.
+export const isBusy = error => {
+  const text = String(error?.message || '');
+  const code = error?.status || Number(text.match(/"code"\s*:\s*(\d{3})/)?.[1]) || 0;
+  return [500, 503, 504].includes(code) || /UNAVAILABLE|high demand|overloaded|INTERNAL/i.test(text);
+};
 
 const isNotFound = error => error?.status === 404 || /NOT_FOUND|is not found/i.test(String(error?.message));
 
@@ -149,6 +178,8 @@ export function friendlyError(error) {
       'Gemini quota exceeded' + (retry ? ', try again in about ' + retry : '') + '.';
   } else if (error?.name === 'TimeoutError' || error?.name === 'AbortError' || /aborted|timed? ?out/i.test(text)) {
     message = 'The AI took too long on this page (over ' + Math.round(REQUEST_TIMEOUT_MS / 1000) + ' s). Try the page again, or split a very busy sheet.';
+  } else if (isBusy(error)) {
+    message = 'Gemini is busy right now (high demand) and did not answer after several tries.';
   } else if (code === 400 && /API key not valid|API_KEY_INVALID/.test(text)) {
     message = 'Gemini key rejected: check GEMINI_API_KEY in Vercel.';
   } else if (code === 403) {

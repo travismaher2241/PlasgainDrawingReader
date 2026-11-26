@@ -7,7 +7,8 @@
 // the same trench once, and converts the length to metres with the sheet's
 // scale bar. Pure functions: the caller supplies pdf.js operator lists and text.
 
-const CONDUIT_WORDS = /\bCABLE\s+CONDUIT\b|\bCONDUIT\b/i;
+// A legend entry starts with the words; notes that mention conduits do not.
+const CONDUIT_WORDS = /^\W*CABLE\s+CONDUITS?\b/i;
 
 const multiply = (m, n) => [m[0] * n[0] + m[2] * n[1], m[1] * n[0] + m[3] * n[1], m[0] * n[2] + m[2] * n[3],
   m[1] * n[2] + m[3] * n[3], m[0] * n[4] + m[2] * n[5] + m[4], m[1] * n[4] + m[3] * n[5] + m[5]];
@@ -81,6 +82,21 @@ export function conduitLegend(items, segments) {
   return found;
 }
 
+// AusNet sheets draw conduit as a cyan dashed line. When the legend wording is
+// drawn as linework (so it can't be read as text), fall back to that style:
+// the cyan line weight with the most length on the sheet.
+export const STANDARD_CONDUIT_COLOUR = '#00ffff';
+export function standardConduit(segments) {
+  const totals = new Map();
+  for (const s of segments) {
+    if (s.colour !== STANDARD_CONDUIT_COLOUR) continue;
+    const key = s.width.toFixed(2);
+    totals.set(key, (totals.get(key) || 0) + Math.hypot(s.x2 - s.x1, s.y2 - s.y1));
+  }
+  const best = [...totals].sort((a, b) => b[1] - a[1])[0];
+  return best ? [{label: 'cyan conduit line (AusNet standard; the legend wording is not readable as text)', colour: STANDARD_CONDUIT_COLOUR, width: Number(best[0]), box: null, standard: true}] : [];
+}
+
 // PDF units per metre, from a scale bar ("SCALE OF METRES" with numbers
 // 0 ... 50 above it), or else from a written ratio such as "1:500" assuming
 // the PDF is at true size. Returns {unitsPerMetre, source} or null.
@@ -111,7 +127,7 @@ export function sheetScale(items) {
 // drawn side by side. `style` is {colour, width}; `exclude` is a list of
 // boxes [x1, y1, x2, y2] to ignore (the legend). Returns {metres, runs} where
 // runs are polylines [[x, y], ...] in PDF units.
-export function conduitRuns(segments, style, unitsPerMetre, {exclude = [], trenchWidth = 2.5, gap = 1.6, minRun = 2} = {}) {
+export function conduitRuns(segments, style, unitsPerMetre, {exclude = [], trenchWidth = 2.5, gap = 1.6, minRun = 2, area = null} = {}) {
   const inBox = (x, y) => exclude.some(b => x >= b[0] && x <= b[2] && y >= b[1] && y <= b[3]);
   const pieces = segments.filter(s => s.colour === style.colour && Math.abs(s.width - style.width) <= Math.max(0.05, style.width * 0.15) &&
     !inBox(s.x1, s.y1) && !inBox(s.x2, s.y2))
@@ -184,6 +200,7 @@ export function conduitRuns(segments, style, unitsPerMetre, {exclude = [], trenc
   });
   pieces.forEach((piece, index) => { if (!seen.has(index)) runs.push(walk(index, 'a')); }); // closed loops
   const runLength = points => points.slice(1).reduce((sum, p, i) => sum + Math.hypot(p[0] - points[i][0], p[1] - points[i][1]), 0);
+  if (area) runs.splice(0, runs.length, ...mainPlan(runs, unitsPerMetre, area));
   runs.sort((p, q) => runLength(q) - runLength(p));
 
   // Measure: sample each run every `step`; a sample counts only when no run
@@ -234,4 +251,52 @@ export function conduitRuns(segments, style, unitsPerMetre, {exclude = [], trenc
     }
   }
   return {metres: total / unitsPerMetre, runs: kept, trench};
+}
+
+// Keeps the runs on the main plan and drops those in details drawn elsewhere
+// on the sheet (sections, enlargements, joint details), which are often at
+// another scale. Runs within `link` metres of each other form a group, and
+// the plan is every group reaching into `area` (the box holding the plan's
+// pole labels).
+function mainPlan(runs, unitsPerMetre, area, link = 8) {
+  if (runs.length < 2) return runs;
+  const reach = link * unitsPerMetre;
+  const parent = runs.map((_, i) => i);
+  const find = i => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+  const cells = new Map();
+  runs.forEach((points, index) => {
+    for (let k = 0; k < points.length; k++) {
+      // Sample along each piece so long straight runs link along their length.
+      const [x1, y1] = points[k], [x2, y2] = points[k + 1] || points[k];
+      const steps = Math.max(1, Math.ceil(Math.hypot(x2 - x1, y2 - y1) / reach));
+      for (let t = 0; t < steps; t++) {
+        const x = x1 + (x2 - x1) * t / steps, y = y1 + (y2 - y1) * t / steps;
+        const key = Math.floor(x / reach) + ',' + Math.floor(y / reach);
+        if (!cells.has(key)) cells.set(key, []);
+        cells.get(key).push({index, x, y});
+      }
+    }
+  });
+  for (const [key, list] of cells) {
+    const [gx, gy] = key.split(',').map(Number);
+    for (let i = gx - 1; i <= gx + 1; i++) for (let j = gy - 1; j <= gy + 1; j++) {
+      for (const other of cells.get(i + ',' + j) || []) {
+        for (const point of list) {
+          if (find(point.index) !== find(other.index) && Math.hypot(point.x - other.x, point.y - other.y) <= reach) parent[find(point.index)] = find(other.index);
+        }
+      }
+    }
+  }
+  const groups = new Map();
+  runs.forEach((points, index) => {
+    const root = find(index);
+    if (!groups.has(root)) groups.set(root, {runs: [], box: [Infinity, Infinity, -Infinity, -Infinity]});
+    const group = groups.get(root);
+    group.runs.push(points);
+    for (const [x, y] of points) group.box = [Math.min(group.box[0], x), Math.min(group.box[1], y), Math.max(group.box[2], x), Math.max(group.box[3], y)];
+  });
+  const list = [...groups.values()];
+  const overlapsArea = box => box[0] <= area[2] && area[0] <= box[2] && box[1] <= area[3] && area[1] <= box[3];
+  const kept = list.filter(group => overlapsArea(group.box));
+  return kept.length ? kept.flatMap(group => group.runs) : runs;
 }
