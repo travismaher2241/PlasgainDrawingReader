@@ -2,6 +2,7 @@
 // shared Item List library, and serves the built app from dist/.
 
 import {createServer as createHttpServer} from 'node:http';
+import {timingSafeEqual} from 'node:crypto';
 import {readFile, stat} from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -18,6 +19,9 @@ class HttpError extends Error {
 }
 
 async function body(request) {
+  // On Vercel the platform may already have parsed the JSON body.
+  if (request.body !== undefined && request.body !== null && typeof request.body !== 'string' && !Buffer.isBuffer(request.body)) return request.body;
+  if (typeof request.body === 'string' || Buffer.isBuffer(request.body)) return JSON.parse(String(request.body) || '{}');
   const chunks = [];
   let size = 0;
   for await (const chunk of request) {
@@ -37,15 +41,20 @@ const send = (response, status, data) => {
   response.end(JSON.stringify(data));
 };
 
-export function createServer({dataDir = process.env.DATA_DIR || path.join(here, '..', 'data'),
-  staticDir = path.join(here, '..', 'dist'), ai} = {}) {
-  const store = createStore(dataDir);
+const sameText = (a, b) => {
+  const x = Buffer.from(String(a)), y = Buffer.from(String(b));
+  return x.length === y.length && timingSafeEqual(x, y);
+};
+
+// Request handler shared by the local server and the Vercel function.
+export function createHandler({dataDir = process.env.DATA_DIR || path.join(here, '..', 'data'),
+  staticDir = path.join(here, '..', 'dist'), ai, store = createStore(dataDir), passcode = process.env.APP_PASSCODE} = {}) {
   const reader = ai ?? null;
 
   const routes = {
     'GET /api/health': async () => {
       const engine = reader ?? await import('./gemini.js');
-      return {ok: true, ai: engine.configured(), model: engine.configured() ? engine.MODEL : ''};
+      return {ok: true, ai: engine.configured(), model: engine.configured() ? engine.MODEL : '', passcode: !!passcode, storage: store.kind};
     },
     'POST /api/extract': async request => {
       const engine = reader ?? await import('./gemini.js');
@@ -104,10 +113,16 @@ export function createServer({dataDir = process.env.DATA_DIR || path.join(here, 
     }
   }
 
-  return createHttpServer(async (request, response) => {
+  return async (request, response) => {
     try {
-      const pathname = new URL(request.url, 'http://local').pathname;
+      const url = new URL(request.url, 'http://local');
+      // Vercel rewrites /api/* to the single function as /api?route=*.
+      const pathname = url.pathname.replace(/\/$/, '') === '/api' && url.searchParams.get('route') ?
+        '/api/' + url.searchParams.get('route') : url.pathname;
       const route = routes[request.method + ' ' + pathname];
+      if (route && passcode && pathname !== '/api/health' && !sameText(request.headers['x-app-passcode'] || '', passcode)) {
+        throw new HttpError(401, 'Passcode required');
+      }
       if (route) return send(response, 200, await route(request));
       if (pathname.startsWith('/api/')) throw new HttpError(404, 'Unknown API route');
       if (request.method !== 'GET' && request.method !== 'HEAD') throw new HttpError(405, 'Method not allowed');
@@ -117,7 +132,11 @@ export function createServer({dataDir = process.env.DATA_DIR || path.join(here, 
       if (status === 500) console.error(error);
       if (!response.headersSent) send(response, status, {error: status === 500 ? 'Server error: ' + error.message : error.message});
     }
-  });
+  };
+}
+
+export function createServer(options) {
+  return createHttpServer(createHandler(options));
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

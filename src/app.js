@@ -35,10 +35,22 @@ function element(tag, content, className) {
 
 const status = message => { byId('status').textContent = message; };
 
-async function api(method, url, data) {
-  const response = await fetch(url, {method, headers: data ? {'content-type': 'application/json'} : {},
-    body: data ? JSON.stringify(data) : undefined});
+let passcode = '';
+try { passcode = localStorage.getItem('plasgain-passcode') || ''; } catch { /* storage unavailable */ }
+
+async function api(method, url, data, retry = true) {
+  const headers = {...(data ? {'content-type': 'application/json'} : {}), ...(passcode ? {'x-app-passcode': passcode} : {})};
+  const response = await fetch(url, {method, headers, body: data ? JSON.stringify(data) : undefined});
   const json = await response.json().catch(() => ({}));
+  if (response.status === 401 && retry) {
+    const entered = window.prompt('Enter the Plasgain takeoff passcode');
+    if (entered) {
+      passcode = entered.trim();
+      try { localStorage.setItem('plasgain-passcode', passcode); } catch { /* keep for this session only */ }
+      return api(method, url, data, true);
+    }
+  }
+  if (response.status === 413) throw new Error('Page images were too large to send');
   if (!response.ok) throw new Error(json.error || 'Request failed (' + response.status + ')');
   return json;
 }
@@ -326,8 +338,8 @@ byId('drawings').onchange = async event => {
 
 /* ------------------------------------------------------------- reading */
 
-async function canvasData(canvas) {
-  const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.88));
+async function canvasData(canvas, quality) {
+  const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', quality));
   const bytes = new Uint8Array(await blob.arrayBuffer());
   let binary = '';
   for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
@@ -336,14 +348,14 @@ async function canvasData(canvas) {
 
 // The whole sheet plus four enlarged, overlapping quarters so fine print and
 // small dimensions are legible to the AI.
-async function pageImages(page) {
+async function pageImages(page, {fullPx, tilePx, quality}) {
   const base = page.pdf.getViewport({scale: 1});
   const long = Math.max(base.width, base.height);
   const full = element('canvas');
-  await renderPage(page, full, base.width * 2000 / long);
-  const images = [{label: 'Whole sheet', mimeType: 'image/jpeg', data: await canvasData(full)}];
+  await renderPage(page, full, base.width * fullPx / long);
+  const images = [{label: 'Whole sheet', mimeType: 'image/jpeg', data: await canvasData(full, quality)}];
   const big = element('canvas');
-  const scale = 3600 / long;
+  const scale = tilePx / long;
   const viewport = page.pdf.getViewport({scale});
   big.width = Math.ceil(viewport.width);
   big.height = Math.ceil(viewport.height);
@@ -355,17 +367,25 @@ async function pageImages(page) {
     tile.width = Math.ceil(big.width * (0.5 + overlap));
     tile.height = Math.ceil(big.height * (0.5 + overlap));
     tile.getContext('2d').drawImage(big, -big.width * fx, -big.height * fy);
-    images.push({label: label + ' quarter (enlarged)', mimeType: 'image/jpeg', data: await canvasData(tile)});
+    images.push({label: label + ' quarter (enlarged)', mimeType: 'image/jpeg', data: await canvasData(tile, quality)});
   }
   return images;
 }
 
 async function readPageWithAi(page) {
   const {width, height} = page.pdf.getViewport({scale: 1});
+  // Vercel accepts request bodies up to about 4.5 MB, so step the image
+  // size down until the page fits.
+  const lines = page.lines.map(({text, point}) => ({text, point}));
+  let images;
+  for (const setting of [{fullPx: 2000, tilePx: 3600, quality: 0.85}, {fullPx: 1800, tilePx: 3000, quality: 0.75},
+    {fullPx: 1600, tilePx: 2600, quality: 0.65}, {fullPx: 1400, tilePx: 2200, quality: 0.55}]) {
+    images = await pageImages(page, setting);
+    const size = images.reduce((sum, image) => sum + image.data.length, 0) + JSON.stringify(lines).length;
+    if (size < 4_000_000) break;
+  }
   const result = await api('POST', '/api/extract', {
-    page: {id: page.id, file: page.file, number: page.number, width, height},
-    images: await pageImages(page),
-    lines: page.lines.map(({text, point}) => ({text, point})),
+    page: {id: page.id, file: page.file, number: page.number, width, height}, images, lines,
   });
   for (const [key, value] of Object.entries(result.titleBlock || {})) if (value) page.meta[key] = value;
   refreshPageCard(page);

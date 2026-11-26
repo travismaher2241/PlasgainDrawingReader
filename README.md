@@ -24,8 +24,26 @@ server and is never sent to the browser. Without a key the app still works in
 **text-only mode**. It reads written quantities and schedule tables from
 searchable PDFs, but it cannot count symbols or read scanned sheets.
 
-Set `HOST=0.0.0.0` to share it on the office network. The server has no login,
-so only expose it on a trusted network or behind your existing sign-in proxy.
+Set `APP_PASSCODE` to require a shared passcode for everything except the
+health check. The browser asks for it once and remembers it.
+
+## Hosting on Vercel
+
+The repo deploys to Vercel as is. `vercel.json` builds the Vite app into
+`dist/`, and `api/index.js` serves every `/api/*` route as one function, with
+up to 300 seconds per page read.
+
+1. Import the GitHub repo as a Vercel project (framework: Vite).
+2. Under **Storage**, create a **private Blob** store and connect it to the
+   project. This adds `BLOB_READ_WRITE_TOKEN`, and the shared Item List,
+   aliases, exclusion rules and correction log are saved there. Without it,
+   Vercel's file system is temporary and nothing would persist.
+3. Under **Settings → Environment Variables**, add `GEMINI_API_KEY` and an
+   `APP_PASSCODE` for the team. You can also set `GEMINI_MODEL`. Redeploy after
+   adding them.
+
+Vercel limits a request body to about 4.5 MB, so the browser lowers the image
+resolution step by step until each page fits.
 
 Try it with `samples/sample-drawing-set.pdf` and `samples/sample-item-list.csv`.
 
@@ -106,5 +124,6 @@ Headings are case-insensitive, and common alternatives are accepted (for example
 - `src/takeoff.js`: matching, quantity, duplicate, revision, pack and export rules (pure functions)
 - `src/grounding.js`: AI output schema and the checks applied to it
 - `src/app.js`: browser app (pdf.js viewer, page picker, review workspace)
-- `server/index.js`: API and static server; `server/gemini.js` is the AI reader; `server/store.js` is the shared library file
+- `server/index.js`: API and static server; `server/gemini.js` is the AI reader; `server/store.js` is the shared library (Vercel Blob or a local file)
+- `api/index.js` and `vercel.json`: Vercel entry point and build settings
 - `scripts/make-sample-drawings.mjs`: regenerates the sample PDF (needs Playwright)
