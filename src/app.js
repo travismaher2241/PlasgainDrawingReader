@@ -7,6 +7,7 @@ import {
 } from './takeoff.js';
 import {findSymbol, labelSchedule, legendTemplates, pairLabels, pathPrimitives, poleLabels} from './symbols.js';
 import {MARK_STYLES, drawKey, drawMarkup, keySize} from './markup.js';
+import {zipFiles} from './zip.js';
 import './style.css';
 
 pdf.GlobalWorkerOptions.workerSrc = worker;
@@ -65,7 +66,9 @@ function syncButtons() {
   byId('add').disabled = busy || !currentPage;
   byId('export').disabled = busy || !quoteLines(rows, catalogue, pages).length;
   byId('export-detail').disabled = busy || !rows.length;
-  byId('download-markup').disabled = busy || !currentPage;
+  byId('download-markup').disabled = busy || !pages.length;
+  byId('page-prev').disabled = !currentPage || pages.indexOf(currentPage) <= 0;
+  byId('page-next').disabled = !currentPage || pages.indexOf(currentPage) >= pages.length - 1;
 }
 
 /* ------------------------------------------------------ shared library */
@@ -254,40 +257,70 @@ function pageMarkup(page) {
   return {title, groups, labels, schedule: page.vectors?.schedule};
 }
 
+// One sheet at full size with its markup, under a band that holds the key.
+async function markedPng(page) {
+  const sheet = element('canvas');
+  const viewport = await renderPage(page, sheet, 4200);
+  const markup = pageMarkup(page);
+  drawMarkup(sheet.getContext('2d'), viewport, markup);
+  const canvas = element('canvas');
+  const scale = sheet.width / 2000;
+  const key = keySize(canvas.getContext('2d'), markup, scale);
+  canvas.width = sheet.width;
+  canvas.height = sheet.height + key.height + key.margin * 2;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  drawKey(ctx, markup, scale, key.margin, key.margin);
+  ctx.drawImage(sheet, 0, key.height + key.margin * 2);
+  const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+  sheet.width = sheet.height = canvas.width = canvas.height = 0; // free the memory
+  return blob;
+}
+
+const sheetName = page => (page.meta.drawingNumber || page.file.replace(/\.pdf$/i, '')).replace(/[\\/:*?"<>|]+/g, '-');
+
+function saveBlob(blob, name) {
+  const link = element('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = name;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(link.href), 10000);
+}
+
+// Downloads every sheet that was read (or every sheet, before a reading) as
+// marked-up PNGs in one zip. A single sheet downloads as a plain PNG.
 byId('download-markup').onclick = async () => {
-  const page = currentPage;
-  if (!page) return;
+  const read = pages.filter(page => page.selected && page.vectors);
+  const chosen = read.length ? read : pages;
+  if (!chosen.length) return;
   const button = byId('download-markup');
   button.disabled = true;
   try {
-    // The sheet with its markup, under a band that holds the key.
-    const sheet = element('canvas');
-    const viewport = await renderPage(page, sheet, 4200);
-    const markup = pageMarkup(page);
-    drawMarkup(sheet.getContext('2d'), viewport, markup);
-    const canvas = element('canvas');
-    const scale = sheet.width / 2000;
-    const key = keySize(canvas.getContext('2d'), markup, scale);
-    canvas.width = sheet.width;
-    canvas.height = sheet.height + key.height + key.margin * 2;
-    const ctx = canvas.getContext('2d');
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    drawKey(ctx, markup, scale, key.margin, key.margin);
-    ctx.drawImage(sheet, 0, key.height + key.margin * 2);
-    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
-    const link = element('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = (page.meta.drawingNumber || page.file.replace(/\.pdf$/i, '')) + '-p' + page.number + '-marked.png';
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(link.href), 5000);
+    const files = [];
+    for (const [index, page] of chosen.entries()) {
+      status('Marking up sheet ' + (index + 1) + ' of ' + chosen.length + '…');
+      const blob = await markedPng(page);
+      files.push({name: sheetName(page) + '-p' + page.number + '-marked.png', data: new Uint8Array(await blob.arrayBuffer()), blob});
+    }
+    if (files.length === 1) saveBlob(files[0].blob, files[0].name);
+    else saveBlob(zipFiles(files), sheetName(chosen[0]) + '-marked-up.zip');
+    status(files.length + ' marked-up sheet' + (files.length > 1 ? 's' : '') + ' downloaded' + (files.length > 1 ? ' in one zip file.' : '.'));
   } catch (error) {
-    status('Could not make the marked-up image. ' + error.message);
+    status('Could not make the marked-up images. ' + error.message);
   } finally {
     button.disabled = false;
     syncButtons();
   }
 };
+
+// Previous and next sheet in the viewer, across all uploaded PDFs.
+for (const [id, step] of [['page-prev', -1], ['page-next', 1]]) {
+  byId(id).onclick = () => {
+    const index = pages.indexOf(currentPage) + step;
+    if (pages[index]) showPage(pages[index]);
+  };
+}
 
 for (const [id, factor] of [['zoom-in', 1.5], ['zoom-out', 1 / 1.5]]) {
   byId(id).onclick = () => {
