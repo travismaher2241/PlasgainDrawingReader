@@ -67,12 +67,12 @@ export async function extractPage({images, lines, page}) {
   try {
     response = await request(activeModel);
   } catch (error) {
-    if (!isNotFound(error)) throw error;
+    if (!isNotFound(error)) throw friendlyError(error);
     const fallback = await bestAvailableModel(activeModel);
     if (!fallback) throw error;
     console.warn('Gemini model ' + activeModel + ' is not available to this key; using ' + fallback);
     activeModel = fallback;
-    response = await request(activeModel);
+    response = await request(activeModel).catch(e => { throw friendlyError(e); });
   }
   const text = response.text;
   if (!text) {
@@ -105,4 +105,26 @@ async function bestAvailableModel(missing) {
     if (!model.supportedActions || model.supportedActions.includes('generateContent')) names.push(String(model.name).replace(/^models\//, ''));
   }
   return rankModels(names).find(name => name !== missing) || null;
+}
+
+// Gemini's errors are long JSON dumps; turn the common ones into one plain sentence.
+export function friendlyError(error) {
+  const text = String(error?.message || error);
+  const code = error?.status || Number(text.match(/"code"\s*:\s*(\d{3})/)?.[1]) || 0;
+  let message = '';
+  if (code === 429 || /RESOURCE_EXHAUSTED/.test(text)) {
+    const parts = text.match(/retry in (?:(\d+)h)?(?:(\d+)m)?(?:(\d+)(?:\.\d+)?s)?/i);
+    const retry = parts && (parts[1] || parts[2] ? (parts[1] ? parts[1] + 'h ' : '') + (parts[2] || 0) + 'm' : parts[3] ? parts[3] + 's' : '');
+    message = /free_tier|Free Tier/.test(text) && /limit: 0\b/.test(text) ?
+      'Gemini quota: this API key is on the free tier, which does not include ' + activeModel + '. Turn on billing for the key in Google AI Studio.' :
+      'Gemini quota exceeded' + (retry ? ', try again in about ' + retry : '') + '.';
+  } else if (code === 400 && /API key not valid|API_KEY_INVALID/.test(text)) {
+    message = 'Gemini key rejected: check GEMINI_API_KEY in Vercel.';
+  } else if (code === 403) {
+    message = 'Gemini access denied for this key (' + (text.match(/"message"\s*:\s*"([^"]{0,160})/)?.[1] || 'permission denied') + ').';
+  }
+  if (!message) return error;
+  const friendly = new Error(message);
+  friendly.status = 502;
+  return friendly;
 }
