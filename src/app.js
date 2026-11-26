@@ -5,10 +5,10 @@ import {
   accessoriesFor, catalogueFromRows, compareRevision, exclusionTerms, extractRows, extractScheduleRows, list, matchItem, normalize,
   packs, parseTitleBlock, quoteCsv, quoteLines, readCatalogue, reconcile,
 } from './takeoff.js';
-import {findSymbol, labelSchedule, legendTemplates, pairLabels, pathPrimitives, poleLabels} from './symbols.js';
+import {existingPoleLabels, findSymbol, labelSchedule, legendTemplates, pairLabels, pathPrimitives, poleLabels, sameTemplate} from './symbols.js';
 import {MARK_STYLES, drawKey, drawMarkup, keySize} from './markup.js';
 import {zipFiles} from './zip.js';
-import {conduitLegend, conduitRuns, sheetScale, strokedSegments} from './conduit.js';
+import {conduitLegend, conduitRuns, sheetScale, standardConduit, strokedSegments} from './conduit.js';
 import './style.css';
 
 pdf.GlobalWorkerOptions.workerSrc = worker;
@@ -506,9 +506,19 @@ async function readPageWithAi(page) {
     const size = images.reduce((sum, image) => sum + image.data.length, 0) + JSON.stringify(lines).length;
     if (size < 4_000_000) break;
   }
-  const result = await api('POST', '/api/extract', {
-    page: {id: page.id, file: page.file, number: page.number, width, height}, images, lines,
+  const send = fast => api('POST', '/api/extract', {
+    page: {id: page.id, file: page.file, number: page.number, width, height}, images, lines, fast,
   });
+  let result;
+  try {
+    result = await send(false);
+  } catch (error) {
+    // A busy sheet that ran out of time, or Gemini busy: one more go with a
+    // quicker read before falling back to text-only reading.
+    if (!/took too long|busy|high demand|UNAVAILABLE|\b50[034]\b/i.test(error.message)) throw error;
+    status('Reading ' + page.file + ' p' + page.number + ' again with a quicker AI read (' + error.message.replace(/\.$/, '') + ')…');
+    result = await send(true);
+  }
   for (const [key, value] of Object.entries(result.titleBlock || {})) if (value) page.meta[key] = value;
   refreshPageCard(page);
   if (!byId('project').value && page.meta.project) byId('project').value = page.meta.project;
@@ -531,7 +541,7 @@ async function pageVectors(page) {
     const [operators, text] = await Promise.all([page.pdf.getOperatorList(), page.pdf.getTextContent()]);
     const primitives = pathPrimitives(operators, pdf.OPS);
     const segments = strokedSegments(operators, pdf.OPS);
-    page.vectors = {primitives, legends: legendTemplates(text.items, primitives), schedule: labelSchedule(text.items), labels: poleLabels(text.items),
+    page.vectors = {primitives, legends: legendTemplates(text.items, primitives), schedule: labelSchedule(text.items), labels: poleLabels(text.items), existing: existingPoleLabels(text.items),
       segments, conduitLegend: conduitLegend(text.items, segments), scale: sheetScale(text.items)};
   }
   return page.vectors;
@@ -548,16 +558,36 @@ async function countLegendSymbols(selected, notes) {
     const own = page.vectors.legends;
     const legends = own.length ? own : pages.filter(other => other.file === page.file && other.vectors.legends.length)[0]?.vectors.legends || [];
     const found = [];
+    // Legend entries drawn with the same symbol can't be told apart on the
+    // plan: count the symbol once and say which entries share it.
+    const groups = [];
     for (const legend of legends) {
-      const hits = findSymbol(legend.template, page.vectors.primitives);
+      const group = groups.find(other => sameTemplate(other[0].template, legend.template));
+      if (group) group.push(legend); else groups.push([legend]);
+    }
+    for (const group of groups) {
+      const legend = group[0];
+      let hits = findSymbol(legend.template, page.vectors.primitives);
+      // Lights at existing poles ("(E) BID PO ...") are already there, not supply.
+      const existing = page.vectors.existing || [];
+      let skipped = 0;
+      if (existing.length && hits.length) {
+        const paired = pairLabels([...(page.vectors.labels || []), ...existing], hits.map(hit => [hit.x, hit.y]));
+        const old = new Set(paired.filter(label => label.existing && label.point).map(label => label.point.join()));
+        skipped = hits.filter(hit => old.has([hit.x, hit.y].join())).length;
+        hits = hits.filter(hit => !old.has([hit.x, hit.y].join()));
+      }
       if (!hits.length) continue;
       const points = hits.map(hit => [hit.x, hit.y]);
       const base = {pageId: page.id, point: points[0], points, approximate: false, source: 'counted', location: 'plan',
         locationNote: 'legend symbol', quantity: hits.length, unit: 'ea', baseNote: '', typical: false, extractConfidence: 'Medium',
         extractNote: 'Counted ' + hits.length + ' legend symbols on the sheet (' + (own.length ? 'legend on this sheet' : 'legend from p' +
-          pages.find(other => other.vectors.legends === legends)?.number) + '). Check the markers.'};
+          pages.find(other => other.vectors.legends === legends)?.number) + '). Check the markers.' +
+          (skipped ? ' Left out ' + skipped + ' at existing poles labelled (E).' : '') +
+          (group.length > 1 ? ' The legend draws ' + group.length + ' types with this same symbol (' + group.map(other => other.label + (other.pole ? ' ' + other.pole : '')).join('; ') +
+            '), so the count covers all of them; split it by hand.' : '')};
       found.push({...base, text: legend.label + (legend.pole ? ' / ' + legend.pole : ''), description: legend.label});
-      if (legend.pole) found.push({...base, text: legend.pole + ' (for ' + legend.label + ')', description: legend.pole.replace(/^(ON|MOUNTED ON)\s+(A|AN)\s+/i, '')});
+      if (legend.pole) found.push({...base, text: legend.pole + ' (for ' + legend.label + ')', description: legend.pole.replace(/^(AT\s+.*?\s+)?(ON|MOUNTED ON)\s+(A|AN)\s+/i, (all, at) => at ? at.replace(/^AT\s+/i, '') : '')});
     }
     if (found.length) {
       notes.push(page.file + ' p' + page.number + ': ' + found.filter(row => row.description === row.text.split(' / ')[0]).map(row => row.quantity + ' × ' + row.description).join(', '));
@@ -570,6 +600,14 @@ async function countLegendSymbols(selected, notes) {
   return rowsByPage;
 }
 
+// The part of the sheet holding the plan: the pole labels' extent plus a
+// margin. Conduit in details drawn elsewhere on the sheet is left out.
+function labelArea(labels = [], unitsPerMetre, margin = 10) {
+  if (!labels.length) return null;
+  const m = margin * unitsPerMetre;
+  return [Math.min(...labels.map(l => l.x)) - m, Math.min(...labels.map(l => l.y)) - m, Math.max(...labels.map(l => l.x)) + m, Math.max(...labels.map(l => l.y)) + m];
+}
+
 // Trench length: the conduit runs drawn in the legend's CABLE CONDUIT line
 // style, measured with the sheet's scale bar. Side-by-side conduits in one
 // trench count once. Returns a takeoff row, or null.
@@ -577,7 +615,8 @@ function measureTrench(page, notes) {
   const v = page.vectors;
   page.trench = null;
   const own = v.conduitLegend || [];
-  const legend = own.length ? own : pages.find(other => other.file === page.file && other.vectors?.conduitLegend?.length)?.vectors.conduitLegend || [];
+  const shared = pages.find(other => other.file === page.file && other.vectors?.conduitLegend?.length)?.vectors.conduitLegend || [];
+  const legend = own.length ? own : shared.length ? shared : standardConduit(v.segments || []);
   if (!legend.length) return null;
   const where = page.file + ' p' + page.number;
   if (!v.scale) {
@@ -589,7 +628,7 @@ function measureTrench(page, notes) {
   const styles = [...new Map(legend.map(entry => [entry.colour + '|' + entry.width, entry])).values()];
   const segments = v.segments.filter(s => styles.some(style => s.colour === style.colour && Math.abs(s.width - style.width) <= Math.max(0.05, style.width * 0.15)));
   const style = {colour: '*', width: 0};
-  const result = conduitRuns(segments.map(s => ({...s, colour: '*', width: 0})), style, v.scale.unitsPerMetre, {exclude: own.map(entry => entry.box)});
+  const result = conduitRuns(segments.map(s => ({...s, colour: '*', width: 0})), style, v.scale.unitsPerMetre, {exclude: own.map(entry => entry.box).filter(Boolean), area: labelArea(v.labels, v.scale.unitsPerMetre)});
   if (result.metres < 1) return null;
   page.trench = result.trench;
   const metres = Math.round(result.metres);
@@ -599,7 +638,7 @@ function measureTrench(page, notes) {
     locationNote: 'conduit runs (legend: ' + legend.map(entry => entry.label).join('; ') + ')', quantity: metres, unit: 'm', baseNote: '',
     typical: false, extractConfidence: 'Medium', text: 'CABLE CONDUIT runs, measured', description: 'Trench length',
     extractNote: 'Measured ' + metres + ' m of conduit runs with the ' + v.scale.source + '. Conduits side by side in one trench are counted once. ' +
-      'Check the green trench lines on the drawing; details drawn at another scale may be included.'};
+      'Check the green trench lines on the drawing; conduit in details and sections away from the plan is left out.'};
 }
 
 // Cross-checks the symbol count against the sheet's label schedule, where each

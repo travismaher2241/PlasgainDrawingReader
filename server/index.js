@@ -66,12 +66,12 @@ export function createHandler({dataDir = process.env.DATA_DIR || (process.env.VE
     'POST /api/extract': async request => {
       const engine = reader ?? await import('./gemini.js');
       if (!engine.configured()) throw new HttpError(503, 'AI reader not configured. Set GEMINI_API_KEY on the server.');
-      const {page, images, lines} = await body(request);
+      const {page, images, lines, fast} = await body(request);
       if (!page || !Array.isArray(images) || !images.length) throw new HttpError(400, 'page and images are required');
       for (const image of images) {
         if (!/^image\/(png|jpeg|webp)$/.test(image.mimeType) || typeof image.data !== 'string') throw new HttpError(400, 'Images must be PNG, JPEG or WebP base64');
       }
-      const output = await engine.extractPage({page, images, lines: Array.isArray(lines) ? lines : []});
+      const output = await engine.extractPage({page, images, lines: Array.isArray(lines) ? lines : [], fast: Boolean(fast)});
       return groundExtraction(output, {pageId: page.id, lines: Array.isArray(lines) ? lines : [], width: page.width, height: page.height});
     },
     'GET /api/library': async () => store.load(),

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {findSymbol, labelSchedule, legendEntries, legendTemplates, pairLabels, pathPrimitives, poleLabels} from '../src/symbols.js';
+import {existingPoleLabels, findSymbol, labelSchedule, legendEntries, legendTemplates, pairLabels, pathPrimitives, poleLabels, sameTemplate} from '../src/symbols.js';
 
 const OPS = {save: 1, restore: 2, transform: 3, constructPath: 4};
 const K = 0.5523; // Bezier circle constant
@@ -90,4 +90,34 @@ test('pole labels on the plan are found in any rotation and paired one-to-one wi
     [['BID PO 2602515854', 495, 550], ['BID PO 2602515856', 950, 305], ['BID PO 2602515999', 3050, 3005]]);
   const paired = pairLabels(labels, [[560, 540], [1000, 250], [520, 560]]);
   assert.deepEqual(paired.map(label => label.point), [[520, 560], [1000, 250], null]);
+});
+
+test('a plan drawn larger than the notes symbol is still counted, at the size most copies share', () => {
+  const big = (x, y, angle, size) => [[OPS.save, null], [OPS.transform, [size, 0, 0, size, x - x * size, y - y * size]], ...lantern(x, y, angle), [OPS.restore, null]];
+  const primitives = pathPrimitives(operatorList([
+    lantern(160, 404, 0), // the symbol beside the note
+    big(500, 500, 0.3, 1.25), big(700, 300, 2, 1.25), big(900, 650, -1, 1.25),
+    big(300, 900, 0, 2.6), // one more drawn at another size (a second legend)
+  ]), OPS);
+  const [legend] = legendTemplates(LEGEND, primitives);
+  const found = findSymbol(legend.template, primitives);
+  assert.equal(found.length, 3);
+  for (const [x, y] of [[500, 500], [700, 300], [900, 650]]) {
+    assert.ok(found.some(hit => Math.hypot(hit.x - x, hit.y - y) < 20), 'found the copy at ' + x + ',' + y);
+  }
+});
+
+test('a one-line legend entry is split into the lantern and its pole', () => {
+  const [entry] = legendEntries([text('SYLVANIA STREET LED "14W" LANTERN AT 5.5m MOUNTING HEIGHT ON A LINCOLN POLE, COLOUR BLACK', 180, 400)]);
+  assert.equal(entry.label, 'SYLVANIA STREET LED "14W" LANTERN');
+  assert.equal(entry.pole, 'AT 5.5m MOUNTING HEIGHT ON A LINCOLN POLE, COLOUR BLACK');
+});
+
+test('existing pole labels are read separately, and identical symbols are recognised', () => {
+  const items = [text('BID PO 2602541371', 100, 100), text('(E) BID PO 2602509892', 300, 100), text('(E)BID PO 2602171683', 500, 100)];
+  assert.equal(poleLabels(items).length, 1);
+  assert.deepEqual(existingPoleLabels(items).map(label => label.label), ['(E) BID PO 2602509892', '(E)BID PO 2602171683']);
+  const primitives = pathPrimitives(operatorList([lantern(160, 404, 0), lantern(160, 380, 0)]), OPS);
+  const [a, b] = legendTemplates([text('14W LED LANTERN', 180, 400), text('14W LED LANTERN (FRONT ACCESS PANEL)', 180, 376)], primitives);
+  assert.ok(sameTemplate(a.template, b.template));
 });

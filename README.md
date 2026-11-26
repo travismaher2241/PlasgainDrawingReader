@@ -159,6 +159,21 @@ the reader counts those rows on the same sheet:
 - When no symbols are counted but the schedule lists poles, a low-confidence
   `P/L POLE` row is added with the schedule's count so the poles aren't lost.
 
+Legend symbols are found at any size from half to three times the legend's
+(plans are often drawn larger than the symbol in the notes), keeping the size
+most copies share. A one-line entry such as `... LANTERN AT 5.5m MOUNTING
+HEIGHT ON A LINCOLN POLE` gives a lantern row and a pole row. Lights at
+existing poles labelled `(E) BID PO ...` are left out. When two legend entries
+use the same symbol, the count is given once and the row says to split it.
+
+## AI reader retries
+
+When Gemini is busy (503 "high demand" or a server error) the server waits
+and tries again (3, 8 and 15 s; `GEMINI_BUSY_WAITS_MS`), switching to another
+Flash model after the second failure. If a page still fails, or a busy sheet
+runs past the time limit, the browser asks once more for a quicker read (low
+thinking) before falling back to text-only reading.
+
 ## Marked-up drawings
 
 After a reading, the source drawing viewer marks every counted light with a
@@ -181,8 +196,12 @@ converts to metres with the sheet's scale bar ("SCALE OF METRES" with 0 ...
 50 above it), or a written 1:N scale when there is no bar. The measured runs
 are drawn in green on the viewer and the marked-up PNGs. The line is not
 matched to the Item List automatically; choose a SKU if it should be quoted.
-Details drawn at another scale on the same sheet may be included, so check
-the green lines.
+Only conduit on the plan itself is measured: runs in sections, enlargements
+and joint details elsewhere on the sheet (away from the plan's `BID PO`
+labels) are left out. Only legend lines starting "CABLE CONDUIT" count, not
+notes that mention conduits. When the legend wording is drawn as linework
+rather than text, the AusNet standard cyan conduit line is used and the row
+says so.
 
 Cables from cable schedules and callouts are left out of the takeoff.
 

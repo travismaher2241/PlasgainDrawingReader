@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {conduitLegend, conduitRuns, sheetScale} from '../src/conduit.js';
+import {conduitLegend, conduitRuns, sheetScale, standardConduit} from '../src/conduit.js';
 
 const text = (str, x, y, size = 10, width = str.length * size * 0.5) => ({str, width, transform: [size, 0, 0, size, x, y]});
 
@@ -48,4 +48,22 @@ test('conduit legend reads the sample line style beside the wording', () => {
   const [legend] = conduitLegend(items, segments);
   assert.equal(legend.colour, '#00ffff');
   assert.equal(legend.width, 0.72);
+});
+
+test('notes that mention conduits are not legend entries; the cyan AusNet line is the fallback', () => {
+  const items = [text('CONDUIT BENDS MAY NEED TO START UNDER ROAD PAVEMENT', 170, 139, 7.8), text('5x100, 1x63 CONDUITS UNDER SLAB', 170, 300, 7.8)];
+  const segments = [{colour: '#000000', width: 0, x1: 132, y1: 140, x2: 159, y2: 140}, ...dashedRun(100, 100, 20, 1, 5.56)];
+  assert.deepEqual(conduitLegend(items, segments), []);
+  const [standard] = standardConduit(segments);
+  assert.equal(standard.colour, '#00ffff');
+  assert.equal(standard.width, 0.72);
+});
+
+test('conduit in details away from the plan (sections, enlargements) is left out', () => {
+  const ppm = 5.56;
+  const segments = [...dashedRun(100, 100, 120, 2, ppm), ...dashedRun(2000, 100, 40, 2, ppm)];
+  const all = conduitRuns(segments, {colour: '#00ffff', width: 0.72}, ppm);
+  assert.ok(Math.abs(all.metres - 160) < 4, 'measured ' + all.metres);
+  const plan = conduitRuns(segments, {colour: '#00ffff', width: 0.72}, ppm, {area: [150, 50, 600, 200]});
+  assert.ok(Math.abs(plan.metres - 120) < 4, 'measured ' + plan.metres);
 });
