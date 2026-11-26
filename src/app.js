@@ -8,6 +8,7 @@ import {
 import {findSymbol, labelSchedule, legendTemplates, pairLabels, pathPrimitives, poleLabels} from './symbols.js';
 import {MARK_STYLES, drawKey, drawMarkup, keySize} from './markup.js';
 import {zipFiles} from './zip.js';
+import {conduitLegend, conduitRuns, sheetScale, strokedSegments} from './conduit.js';
 import './style.css';
 
 pdf.GlobalWorkerOptions.workerSrc = worker;
@@ -221,7 +222,7 @@ async function showPage(page, row) {
     const viewport = await renderPage(page, canvas, 1800 * Math.min(zoom, 2.5));
     const markup = pageMarkup(page);
     drawMarkup(canvas.getContext('2d'), viewport, markup);
-    if ((markup.groups.length || markup.labels.length) && figure.isConnected) {
+    if ((markup.groups.length || markup.labels.length || markup.trench.length) && figure.isConnected) {
       const key = element('canvas', null, 'markup-key');
       const size = keySize(key.getContext('2d'), markup, 1.4);
       key.width = size.width + size.margin;
@@ -254,7 +255,8 @@ function pageMarkup(page) {
     pole: counted.find(other => other.pageId === page.id && other.text.endsWith('(for ' + row.description + ')'))?.description || ''}));
   const labels = page.vectors?.labels?.length ? pairLabels(page.vectors.labels, groups.flatMap(group => group.points)) : [];
   const title = [page.meta.drawingNumber || page.file, 'p' + page.number, page.meta.revision ? 'Rev ' + page.meta.revision : ''].filter(Boolean).join(' · ');
-  return {title, groups, labels, schedule: page.vectors?.schedule};
+  const trenchRow = rows.find(row => row.pageId === page.id && row.measure && !row.excluded);
+  return {title, groups, labels, schedule: page.vectors?.schedule, trench: trenchRow ? page.trench || [] : [], trenchMetres: trenchRow?.quantity};
 }
 
 // One sheet at full size with its markup, under a band that holds the key.
@@ -521,13 +523,16 @@ function readPageFromText(page) {
 
 /* ------------------------------------------------ legend symbol counting */
 
+const CABLE = /\bcable\b(?!\s*(cover|marker|tape|warning|pit|tie))|\bU\/G\b|\bXLPE\b|\b\d+(\.\d+)?\s*kV\b/i;
 const LIGHT_OR_POLE = /\b(lantern|luminaire|streetled|street ?light|light(ing)? pole|pole|column|outreach)\b/i;
 
 async function pageVectors(page) {
   if (!page.vectors) {
     const [operators, text] = await Promise.all([page.pdf.getOperatorList(), page.pdf.getTextContent()]);
     const primitives = pathPrimitives(operators, pdf.OPS);
-    page.vectors = {primitives, legends: legendTemplates(text.items, primitives), schedule: labelSchedule(text.items), labels: poleLabels(text.items)};
+    const segments = strokedSegments(operators, pdf.OPS);
+    page.vectors = {primitives, legends: legendTemplates(text.items, primitives), schedule: labelSchedule(text.items), labels: poleLabels(text.items),
+      segments, conduitLegend: conduitLegend(text.items, segments), scale: sheetScale(text.items)};
   }
   return page.vectors;
 }
@@ -537,7 +542,7 @@ async function pageVectors(page) {
 async function countLegendSymbols(selected, notes) {
   const rowsByPage = new Map();
   for (const page of pages) {
-    try { await pageVectors(page); } catch { page.vectors = {primitives: [], legends: []}; }
+    try { await pageVectors(page); } catch { page.vectors = {primitives: [], legends: [], segments: [], conduitLegend: []}; }
   }
   for (const page of selected) {
     const own = page.vectors.legends;
@@ -558,9 +563,43 @@ async function countLegendSymbols(selected, notes) {
       notes.push(page.file + ' p' + page.number + ': ' + found.filter(row => row.description === row.text.split(' / ')[0]).map(row => row.quantity + ' × ' + row.description).join(', '));
     }
     scheduleCheck(page, found, notes);
+    const trench = measureTrench(page, notes);
+    if (trench) found.push(trench);
     if (found.length) rowsByPage.set(page.id, found);
   }
   return rowsByPage;
+}
+
+// Trench length: the conduit runs drawn in the legend's CABLE CONDUIT line
+// style, measured with the sheet's scale bar. Side-by-side conduits in one
+// trench count once. Returns a takeoff row, or null.
+function measureTrench(page, notes) {
+  const v = page.vectors;
+  page.trench = null;
+  const own = v.conduitLegend || [];
+  const legend = own.length ? own : pages.find(other => other.file === page.file && other.vectors?.conduitLegend?.length)?.vectors.conduitLegend || [];
+  if (!legend.length) return null;
+  const where = page.file + ' p' + page.number;
+  if (!v.scale) {
+    notes.push(where + ': conduit is drawn but no scale bar or 1:N scale was found, so the trench length was not measured');
+    return null;
+  }
+  // Every conduit style in the legend, measured together so a trench holding
+  // both sizes counts once.
+  const styles = [...new Map(legend.map(entry => [entry.colour + '|' + entry.width, entry])).values()];
+  const segments = v.segments.filter(s => styles.some(style => s.colour === style.colour && Math.abs(s.width - style.width) <= Math.max(0.05, style.width * 0.15)));
+  const style = {colour: '*', width: 0};
+  const result = conduitRuns(segments.map(s => ({...s, colour: '*', width: 0})), style, v.scale.unitsPerMetre, {exclude: own.map(entry => entry.box)});
+  if (result.metres < 1) return null;
+  page.trench = result.trench;
+  const metres = Math.round(result.metres);
+  notes.push(where + ': trench length ' + metres + ' m');
+  const first = result.trench[0]?.[0];
+  return {pageId: page.id, point: first || null, points: [], approximate: false, source: 'measured', location: 'plan', measure: true,
+    locationNote: 'conduit runs (legend: ' + legend.map(entry => entry.label).join('; ') + ')', quantity: metres, unit: 'm', baseNote: '',
+    typical: false, extractConfidence: 'Medium', text: 'CABLE CONDUIT runs, measured', description: 'Trench length',
+    extractNote: 'Measured ' + metres + ' m of conduit runs with the ' + v.scale.source + '. Conduits side by side in one trench are counted once. ' +
+      'Check the green trench lines on the drawing; details drawn at another scale may be included.'};
 }
 
 // Cross-checks the symbol count against the sheet's label schedule, where each
@@ -631,7 +670,10 @@ byId('scan').onclick = async () => {
       // Legend symbol counts replace the reader's own guesses at lights and poles on that sheet;
       // a written schedule still wins.
       const counted = legendRows.get(page.id) || [];
-      const kept = counted.some(row => row.source === 'counted') ? result.rows.filter(row => row.source === 'schedule' || !LIGHT_OR_POLE.test(row.description)) : result.rows;
+      const lightsCounted = counted.some(row => row.source === 'counted');
+      // Cables (from cable schedules and callouts) are not part of the takeoff.
+      const kept = result.rows.filter(row => !CABLE.test(row.description + ' ' + (row.text || '')) &&
+        (!lightsCounted || row.source === 'schedule' || !LIGHT_OR_POLE.test(row.description)));
       for (const row of [...counted, ...kept]) next.push({...row, id: nextRowId++, pageId: page.id});
     }
     next.forEach(applyMatch);
@@ -652,6 +694,12 @@ byId('scan').onclick = async () => {
 /* ------------------------------------------------------------- matching */
 
 function applyMatch(row) {
+  if (row.measure && !row.skuOverride) {
+    // A measured length (trench) is not matched to the Item List automatically.
+    Object.assign(row, {autoSku: '', sku: row.skuCleared ? '' : row.sku || '', matchConfidence: 'Medium', candidates: [], matchExcluded: false,
+      reason: 'Measured from the drawing. Not matched to an Item List SKU; choose one if it should go on the quote.'});
+    return;
+  }
   const result = matchItem(row.description, catalogue, library.aliases, {exclusions: exclusionTerms(catalogue, library.exclusions)});
   row.autoSku = result.sku;
   if (!row.skuOverride) row.sku = row.skuCleared ? '' : result.sku;

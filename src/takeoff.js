@@ -1,7 +1,7 @@
 // Pure takeoff rules shared by the browser app, the server and the tests.
 // Nothing in this file touches the DOM, the network or storage.
 
-export const SOURCE_RANK = {schedule: 4, callout: 3, counted: 2, unspecified: 1, manual: 0};
+export const SOURCE_RANK = {schedule: 4, callout: 3, counted: 2, measured: 2, unspecified: 1, manual: 0};
 export const CONFIDENCE_ORDER = {Low: 0, Medium: 1, High: 2};
 
 const lowest = (...levels) => levels.filter(Boolean)

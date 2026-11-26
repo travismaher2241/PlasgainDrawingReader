@@ -41,10 +41,25 @@ function tag(ctx, text, x, y, size, colour) {
 
 // groups: [{style, name, pole, points: [[x, y]] in PDF units}]
 // labels: [{label, x, y, size, point}] from pairLabels
-export function drawMarkup(ctx, viewport, {groups = [], labels = []}) {
+export const TRENCH_COLOUR = '#12b03a';
+
+export function drawMarkup(ctx, viewport, {groups = [], labels = [], trench = []}) {
   const r = 7 + 7 * viewport.scale;
   const font = Math.round(r * 1.05);
   const at = ([x, y]) => viewport.convertToViewportPoint(x, y);
+  // Trench (conduit runs) underneath everything else.
+  ctx.save();
+  ctx.strokeStyle = TRENCH_COLOUR;
+  ctx.globalAlpha = 0.6;
+  ctx.lineWidth = Math.max(3, r * 0.7);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  for (const run of trench) {
+    ctx.beginPath();
+    run.forEach((point, index) => { const [x, y] = at(point); index ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+    ctx.stroke();
+  }
+  ctx.restore();
   // Pole labels first, under the light markers.
   for (const label of labels) {
     const [x, y] = at([label.x, label.y]);
@@ -77,8 +92,9 @@ export function drawMarkup(ctx, viewport, {groups = [], labels = []}) {
   }
 }
 
-function keyLines({groups = [], labels = [], schedule}) {
+function keyLines({groups = [], labels = [], schedule, trenchMetres}) {
   const lines = [];
+  if (trenchMetres) lines.push({trench: true, text: 'Trench length (conduit runs): ' + trenchMetres + ' m'});
   for (const group of groups) {
     lines.push({style: group.style, text: group.points.length + ' × ' + group.name + (group.pole ? ' on ' + group.pole : '')});
   }
@@ -93,7 +109,7 @@ function keyLines({groups = [], labels = [], schedule}) {
       (schedule.poles === counted ? ' (agree)' : ' (DIFFERENT, check)'), warn: schedule.poles !== counted});
     if (schedule.missing?.length) lines.push({text: 'In schedule but not on plan: ' + schedule.missing.join(', '), warn: true});
   }
-  if (!lines.length) lines.push({text: 'No counted lights on this sheet'});
+  if (!lines.length) lines.push({text: 'No counted lights or conduit on this sheet'});
   return lines;
 }
 
@@ -129,6 +145,18 @@ export function drawKey(ctx, markup, scale = 1, x0 = Math.round(15 * scale), y0 
     const y = y0 + rowHeight * (index + 1.6);
     const iconX = x0 + size * 1.5;
     if (line.style) drawSymbol(ctx, line.style, iconX, y, size * 0.45);
+    else if (line.trench) {
+      ctx.save();
+      ctx.strokeStyle = TRENCH_COLOUR;
+      ctx.globalAlpha = 0.6;
+      ctx.lineWidth = size * 0.4;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(iconX - size * 0.6, y);
+      ctx.lineTo(iconX + size * 0.6, y);
+      ctx.stroke();
+      ctx.restore();
+    }
     else if (line.label) {
       ctx.beginPath();
       ctx.setLineDash(line.dashed ? [size * 0.25, size * 0.2] : []);
