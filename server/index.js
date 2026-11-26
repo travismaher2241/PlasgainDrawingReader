@@ -50,10 +50,10 @@ const sameText = (a, b) => {
 // Request handler shared by the local server and the Vercel function.
 export function createHandler({dataDir = process.env.DATA_DIR || (process.env.VERCEL ? '/tmp/plasgain' : path.join(here, '..', 'data')),
   staticDir = path.join(here, '..', 'dist'), ai, store = createStore(dataDir), passcode = process.env.APP_PASSCODE,
-  ostendo = {configured: ostendoClient.configured, read: ostendoClient.readTable}} = {}) {
+  ostendo = {configured: ostendoClient.syncEnabled, read: ostendoClient.readTable}} = {}) {
   const reader = ai ?? null;
   const readItems = () => {
-    if (!ostendo.configured()) throw new HttpError(503, 'Ostendo is not connected. Set OSTENDO_API_URL and OSTENDO_API_KEY on the server.');
+    if (!ostendo.configured()) throw new HttpError(503, 'Ostendo item sync is off. The uploaded Item List is used. To turn the sync on, set OSTENDO_ITEM_SYNC=on with OSTENDO_API_URL and OSTENDO_API_KEY on the server.');
     return ostendo.read(ostendoClient.itemTable(), process.env.OSTENDO_ITEM_CONDITION || '');
   };
 

@@ -65,7 +65,11 @@ export async function extractPage({images, lines, page}) {
         systemInstruction: INSTRUCTIONS,
         responseMimeType: 'application/json',
         responseJsonSchema: EXTRACTION_SCHEMA,
-        ...(gemini3(model) ? {thinkingConfig: {thinkingLevel: 'HIGH'}} : {}),
+        // Flash at HIGH thinking took over 5 minutes on a busy sheet, so Flash
+        // thinks at MEDIUM. Pro keeps HIGH.
+        ...(gemini3(model) ? {thinkingConfig: {thinkingLevel: /-flash/.test(model) ? 'MEDIUM' : 'HIGH'}} : {}),
+        // Stop before the 300 s server limit so the page gets a clear message.
+        abortSignal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       },
     });
   };
@@ -102,6 +106,8 @@ export async function extractPage({images, lines, page}) {
     throw new Error('The AI answer was not valid JSON');
   }
 }
+
+const REQUEST_TIMEOUT_MS = Number(process.env.GEMINI_TIMEOUT_MS) || 270000;
 
 const isNotFound = error => error?.status === 404 || /NOT_FOUND|is not found/i.test(String(error?.message));
 
@@ -141,6 +147,8 @@ export function friendlyError(error) {
     message = /free_tier|Free Tier/.test(text) && /limit: 0\b/.test(text) ?
       'Gemini quota: this API key is on the free tier, which does not include ' + activeModel + '. Turn on billing for the key in Google AI Studio.' :
       'Gemini quota exceeded' + (retry ? ', try again in about ' + retry : '') + '.';
+  } else if (error?.name === 'TimeoutError' || error?.name === 'AbortError' || /aborted|timed? ?out/i.test(text)) {
+    message = 'The AI took too long on this page (over ' + Math.round(REQUEST_TIMEOUT_MS / 1000) + ' s). Try the page again, or split a very busy sheet.';
   } else if (code === 400 && /API key not valid|API_KEY_INVALID/.test(text)) {
     message = 'Gemini key rejected: check GEMINI_API_KEY in Vercel.';
   } else if (code === 403) {
