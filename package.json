@@ -24,7 +24,7 @@
   "homepage": "https://github.com/travismaher2241/PlasgainDrawingReader#readme",
   "dependencies": {
     "@google/genai": "^3.6.1",
-    "@vercel/blob": "^2.9.0",
+    "firebase-admin": "^14.5.1",
     "pdfjs-dist": "^6.5.438",
     "read-excel-file": "^9.3.20",
     "vite": "^8.3.8"

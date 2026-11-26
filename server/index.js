@@ -71,26 +71,24 @@ export function createHandler({dataDir = process.env.DATA_DIR || path.join(here,
     'PUT /api/library/item-list': async request => {
       const {fileName, items} = await body(request);
       if (!Array.isArray(items) || !items.every(item => item?.sku && item?.description)) throw new HttpError(400, 'items must list sku and description');
-      return store.update(data => { data.itemList = {fileName: String(fileName || ''), uploadedAt: new Date().toISOString(), items}; });
+      return store.setItemList(String(fileName || ''), items);
     },
     'PUT /api/library/aliases': async request => {
       const {aliases} = await body(request);
       if (!aliases || typeof aliases !== 'object') throw new HttpError(400, 'aliases must be an object');
-      return store.update(data => { data.aliases = Object.fromEntries(Object.entries(aliases).map(([k, v]) => [String(k), String(v)])); });
+      return store.setAliases(Object.fromEntries(Object.entries(aliases).map(([k, v]) => [String(k), String(v)])));
     },
     'PUT /api/library/exclusions': async request => {
       const {exclusions} = await body(request);
       if (!Array.isArray(exclusions)) throw new HttpError(400, 'exclusions must be a list');
-      return store.update(data => { data.exclusions = exclusions.map(String).filter(Boolean); });
+      return store.setExclusions(exclusions.map(String).filter(Boolean));
     },
     'POST /api/library/corrections': async request => {
       const {correction, alias} = await body(request);
       if (!correction?.toSku) throw new HttpError(400, 'correction.toSku is required');
-      return store.update(data => {
-        data.corrections.push({...correction, at: new Date().toISOString()});
-        if (data.corrections.length > 5000) data.corrections.splice(0, data.corrections.length - 5000);
-        if (alias?.label && alias?.sku) data.aliases[String(alias.label)] = String(alias.sku);
-      });
+      const fields = ['text', 'description', 'fromSku', 'toSku', 'file', 'page'];
+      const clean = Object.fromEntries(fields.map(key => [key, correction[key] == null ? '' : correction[key]]));
+      return store.addCorrection(clean, alias?.label && alias?.sku ? {label: String(alias.label), sku: String(alias.sku)} : null);
     },
   };
 

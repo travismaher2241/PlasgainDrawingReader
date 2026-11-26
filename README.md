@@ -27,25 +27,31 @@ searchable PDFs, but it cannot count symbols or read scanned sheets.
 Set `APP_PASSCODE` to require a shared passcode for everything except the
 health check. The browser asks for it once and remembers it.
 
+## Shared storage (Firestore)
+
+The Item List, saved aliases, exclusion rules and correction log are shared by
+the whole team in Firestore. Give the server a Firebase service account in
+one of two ways:
+
+- `FIREBASE_SERVICE_ACCOUNT`: the whole service-account JSON on one line, or
+- `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL` and `FIREBASE_PRIVATE_KEY`.
+
+The collections are `takeoff_library`, `takeoff_item_chunks`,
+`takeoff_aliases` and `takeoff_corrections`. Change the `takeoff` prefix with
+`FIRESTORE_PREFIX`. Large Item Lists are split into 400-row documents to stay
+under Firestore's 1 MB document limit. Without Firebase credentials, the server
+stores the library in `data/library.json`, which is fine for local use.
+
 ## Hosting on Vercel
 
 The repo deploys to Vercel as is. `vercel.json` builds the Vite app into
 `dist/`, and `api/index.js` serves every `/api/*` route as one function, with
-up to 300 seconds per page read.
-
-1. Import the GitHub repo as a Vercel project (framework: Vite).
-2. Under **Storage**, create a **private Blob** store and connect it to the
-   project. This adds `BLOB_READ_WRITE_TOKEN`, and the shared Item List,
-   aliases, exclusion rules and correction log are saved there. Without it,
-   Vercel's file system is temporary and nothing would persist.
-3. Under **Settings → Environment Variables**, add `GEMINI_API_KEY` and an
-   `APP_PASSCODE` for the team. You can also set `GEMINI_MODEL`. Redeploy after
-   adding them.
+up to 300 seconds per page read. Under **Settings → Environment Variables**,
+add `GEMINI_API_KEY`, `APP_PASSCODE` and the Firebase variables above, then
+redeploy. You can also set `GEMINI_MODEL`.
 
 Vercel limits a request body to about 4.5 MB, so the browser lowers the image
 resolution step by step until each page fits.
-
-Try it with `samples/sample-drawing-set.pdf` and `samples/sample-item-list.csv`.
 
 ## How a takeoff works
 
@@ -124,6 +130,6 @@ Headings are case-insensitive, and common alternatives are accepted (for example
 - `src/takeoff.js`: matching, quantity, duplicate, revision, pack and export rules (pure functions)
 - `src/grounding.js`: AI output schema and the checks applied to it
 - `src/app.js`: browser app (pdf.js viewer, page picker, review workspace)
-- `server/index.js`: API and static server; `server/gemini.js` is the AI reader; `server/store.js` is the shared library (Vercel Blob or a local file)
+- `server/index.js`: API and static server; `server/gemini.js` is the AI reader; `server/store.js` is the shared library (Firestore or a local file)
 - `api/index.js` and `vercel.json`: Vercel entry point and build settings
 - `scripts/make-sample-drawings.mjs`: regenerates the sample PDF (needs Playwright)
