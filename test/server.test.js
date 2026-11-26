@@ -28,7 +28,7 @@ test('extraction is grounded and never passes through an AI part number', async 
   const {server, call} = await start(fakeAi);
   try {
     const health = await call('GET', '/api/health');
-    assert.deepEqual(health.json, {ok: true, ai: true, model: 'test-model', passcode: false, storage: 'file'});
+    assert.deepEqual(health.json, {ok: true, ai: true, model: 'test-model', passcode: false, storage: 'file', ostendo: false});
     const result = await call('POST', '/api/extract', {page: {id: 0, file: 'a.pdf', number: 1, width: 100, height: 100},
       images: [{label: 'Whole sheet', mimeType: 'image/jpeg', data: 'AAAA'}], lines: [{text: 'P1 Pole 2', point: [1, 2]}]});
     assert.equal(result.status, 200);

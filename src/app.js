@@ -152,6 +152,27 @@ byId('catalogue').onchange = async event => {
   }
 };
 
+byId('ostendo-sync').onclick = async event => {
+  event.preventDefault();
+  const button = byId('ostendo-sync');
+  button.disabled = true;
+  status('Reading the Item List from Ostendo. This can take up to a minute…');
+  try {
+    const result = await api('POST', '/api/library/item-list/ostendo');
+    const {sync, ...rest} = result;
+    library = rest;
+    catalogue = library.itemList.items || [];
+    renderLibrary();
+    rematchAll();
+    status(sync.count + ' active SKUs synced from Ostendo (' + sync.read + ' items read, ' + sync.inactive + ' inactive skipped; ' +
+      sync.statusRule + '). Drawing aliases, packs and accessories from the previous list were kept by SKU. Existing rows were re-matched.');
+  } catch (error) {
+    status('Ostendo sync failed. ' + error.message);
+  } finally {
+    button.disabled = false;
+  }
+};
+
 /* ------------------------------------------------------------- AI status */
 
 async function loadHealth() {
@@ -163,6 +184,7 @@ async function loadHealth() {
   byId('ai-status').textContent = health.ai ? 'AI reader on (' + health.model + ')' :
     health.offline ? 'Server not running: text-only reading' : 'AI reader off: set GEMINI_API_KEY';
   byId('ai-status').classList.toggle('on', !!health.ai);
+  byId('ostendo-sync').hidden = !health.ostendo;
   if (health.storage === 'temporary') {
     status('Shared storage is not connected (Firebase settings missing), so Item List uploads, aliases and corrections will not be kept.');
   }

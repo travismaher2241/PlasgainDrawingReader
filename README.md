@@ -42,12 +42,34 @@ The collections are `takeoff_library`, `takeoff_item_chunks`,
 under Firestore's 1 MB document limit. Without Firebase credentials, the server
 stores the library in `data/library.json`, which is fine for local use.
 
+## Item List from Ostendo
+
+The library panel shows **Sync from Ostendo** when the server has
+`OSTENDO_API_URL` and `OSTENDO_API_KEY` (the same values as WeeklyFollowUp).
+The sync follows the Ostendo handover guide: server only, read-only
+`GET /tabledata`, `https` to `plasgain.southeastit.com.au:8843` only, a
+45-second timeout, no redirects, and the key scrubbed from every message.
+
+- It reads `ITEMMASTER` (change with `OSTENDO_ITEM_TABLE`). Set
+  `OSTENDO_ITEM_CONDITION`, for example `ITEMSTATUS='Active'`, to read fewer rows.
+- Columns are mapped as `ITEMCODE` → sku, `ITEMDESCRIPTION` → description,
+  `ITEMSTATUS` → status, `ITEMCATEGORY`/`ITEMSUBCATEGORY` → category and
+  `STOCKUNIT` → unit (see `OSTENDO_COLUMNS` in `server/ostendo.js`). Override a
+  field with `OSTENDO_COLUMN_<FIELD>`, for example `OSTENDO_COLUMN_UNIT=SELLUNIT`.
+  With no status column, an `INACTIVE` or `OBSOLETE` flag is used instead.
+- Only Active items are kept. Drawing aliases, competitor codes, accessories,
+  exclusion notes and pack sizes are not in Ostendo, so they carry over by SKU
+  from the previous Item List.
+- `GET /api/ostendo/item-columns` lists the table's column names, how full each
+  is, and the status values, without returning any item rows. Use it to check
+  the mapping.
+
 ## Hosting on Vercel
 
 The repo deploys to Vercel as is. `vercel.json` builds the Vite app into
 `dist/`, and `api/index.js` serves every `/api/*` route as one function, with
 up to 300 seconds per page read. Under **Settings → Environment Variables**,
-add `GEMINI_API_KEY`, `APP_PASSCODE` and the Firebase variables above, then
+add `GEMINI_API_KEY`, `APP_PASSCODE`, the Firebase variables and the Ostendo variables above, then
 redeploy. You can also set `GEMINI_MODEL`.
 
 Vercel limits a request body to about 4.5 MB, so the browser lowers the image
@@ -130,6 +152,7 @@ Headings are case-insensitive, and common alternatives are accepted (for example
 - `src/takeoff.js`: matching, quantity, duplicate, revision, pack and export rules (pure functions)
 - `src/grounding.js`: AI output schema and the checks applied to it
 - `src/app.js`: browser app (pdf.js viewer, page picker, review workspace)
+- `server/ostendo.js`: read-only Ostendo client and Item List mapping
 - `server/index.js`: API and static server; `server/gemini.js` is the AI reader; `server/store.js` is the shared library (Firestore or a local file)
 - `api/index.js` and `vercel.json`: Vercel entry point and build settings
 - `scripts/make-sample-drawings.mjs`: regenerates the sample PDF (needs Playwright)
