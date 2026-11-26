@@ -8,6 +8,8 @@ import {EXTRACTION_SCHEMA} from '../src/grounding.js';
 export const MODEL = process.env.GEMINI_MODEL || 'gemini-3.1-pro-preview';
 // Model actually used: MODEL, or the best available Pro model if MODEL is not offered to this key.
 let activeModel = MODEL;
+let switchedAt = 0;
+const RECHECK_MS = 60 * 60 * 1000;
 export const currentModel = () => activeModel;
 
 export const INSTRUCTIONS = `You read engineering drawing sheets (lighting, civil and electrical) for Plasgain's estimating team.
@@ -43,36 +45,51 @@ function genai() {
 // images: [{label, mimeType, data(base64)}]; lines: text layer lines [{text}]
 export async function extractPage({images, lines, page}) {
   const textLayer = (lines || []).map(line => line.text).filter(Boolean).join('\n').slice(0, 60000);
-  const parts = [];
-  for (const image of images) {
-    parts.push({text: image.label});
-    parts.push({inlineData: {mimeType: image.mimeType, data: image.data}, mediaResolution: {level: 'MEDIA_RESOLUTION_HIGH'}});
-  }
-  parts.push({text: `Page ${page.number} of "${page.file}". The first image is the whole sheet; the others are enlarged quarters of the same sheet for reading fine print.` +
-    (textLayer ? `\n\nText found in the PDF's text layer (use it to read fine print exactly; it has no layout):\n${textLayer}` :
-      '\n\nThis page has no PDF text layer, so read everything from the images.') +
-    '\n\nList the supplyable items on this page following the rules.'});
+  // Gemini 3 takes a per-image resolution and a thinking level; older models don't.
+  const gemini3 = model => /^gemini-([3-9]|\d{2})/.test(model);
+  const request = model => {
+    const parts = [];
+    for (const image of images) {
+      parts.push({text: image.label});
+      parts.push({inlineData: {mimeType: image.mimeType, data: image.data},
+        ...(gemini3(model) ? {mediaResolution: {level: 'MEDIA_RESOLUTION_HIGH'}} : {})});
+    }
+    parts.push({text: `Page ${page.number} of "${page.file}". The first image is the whole sheet; the others are enlarged quarters of the same sheet for reading fine print.` +
+      (textLayer ? `\n\nText found in the PDF's text layer (use it to read fine print exactly; it has no layout):\n${textLayer}` :
+        '\n\nThis page has no PDF text layer, so read everything from the images.') +
+      '\n\nList the supplyable items on this page following the rules.'});
+    return genai().models.generateContent({
+      model,
+      contents: [{role: 'user', parts}],
+      config: {
+        systemInstruction: INSTRUCTIONS,
+        responseMimeType: 'application/json',
+        responseJsonSchema: EXTRACTION_SCHEMA,
+        ...(gemini3(model) ? {thinkingConfig: {thinkingLevel: 'HIGH'}} : {}),
+      },
+    });
+  };
 
-  const request = model => genai().models.generateContent({
-    model,
-    contents: [{role: 'user', parts}],
-    config: {
-      systemInstruction: INSTRUCTIONS,
-      responseMimeType: 'application/json',
-      responseJsonSchema: EXTRACTION_SCHEMA,
-      thinkingConfig: {thinkingLevel: 'HIGH'},
-    },
-  });
+  // A free-tier key gets no Pro quota, so it uses the best Flash model instead.
+  // MODEL is tried again every hour, so turning on billing brings Pro back.
+  if (activeModel !== MODEL && Date.now() - switchedAt > RECHECK_MS) activeModel = MODEL;
+  const tried = new Set();
   let response;
-  try {
-    response = await request(activeModel);
-  } catch (error) {
-    if (!isNotFound(error)) throw friendlyError(error);
-    const fallback = await bestAvailableModel(activeModel);
-    if (!fallback) throw error;
-    console.warn('Gemini model ' + activeModel + ' is not available to this key; using ' + fallback);
-    activeModel = fallback;
-    response = await request(activeModel).catch(e => { throw friendlyError(e); });
+  for (;;) {
+    tried.add(activeModel);
+    try {
+      response = await request(activeModel);
+      break;
+    } catch (error) {
+      const freeTier = isFreeTierBlocked(error);
+      if (!isNotFound(error) && !freeTier) throw friendlyError(error);
+      if (tried.size >= 4) throw friendlyError(error);
+      const fallback = (await availableModels()).find(name => !tried.has(name) && (!freeTier || /-flash/.test(name)));
+      if (!fallback) throw friendlyError(error);
+      console.warn('Gemini model ' + activeModel + (freeTier ? ' has no free-tier quota' : ' is not available to this key') + '; using ' + fallback);
+      activeModel = fallback;
+      switchedAt = Date.now();
+    }
   }
   const text = response.text;
   if (!text) {
@@ -98,14 +115,20 @@ export function rankModels(names) {
     .sort((a, b) => score(b) - score(a));
 }
 
-async function bestAvailableModel(missing) {
+let modelList;
+async function availableModels() {
+  if (modelList) return modelList;
   const names = [];
   const pager = await genai().models.list({config: {pageSize: 100}});
   for await (const model of pager) {
     if (!model.supportedActions || model.supportedActions.includes('generateContent')) names.push(String(model.name).replace(/^models\//, ''));
   }
-  return rankModels(names).find(name => name !== missing) || null;
+  return (modelList = rankModels(names));
 }
+
+// A 429 whose free-tier limit is 0 means this model is never available on the free tier.
+export const isFreeTierBlocked = error => /RESOURCE_EXHAUSTED|"code"\s*:\s*429/.test(String(error?.message)) &&
+  /free_tier|Free Tier/.test(String(error?.message)) && /limit: 0\b/.test(String(error?.message));
 
 // Gemini's errors are long JSON dumps; turn the common ones into one plain sentence.
 export function friendlyError(error) {
