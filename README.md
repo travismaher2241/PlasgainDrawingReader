@@ -159,6 +159,17 @@ the reader counts those rows on the same sheet:
 - When no symbols are counted but the schedule lists poles, a low-confidence
   `P/L POLE` row is added with the schedule's count so the poles aren't lost.
 
+## Marked-up drawings
+
+After a reading, the source drawing viewer marks every counted light with a
+numbered marker, one colour and shape per light type (the same on every
+sheet). Each `BID PO` pole label is circled and paired one-to-one with the
+nearest light: green with a tick when paired, dashed red with a question mark
+when no light is near it. A key above the drawing gives the count of each
+light and its pole, the pole label tally and the label schedule check.
+**Download marked-up PNG** saves the current sheet at full size with the key
+in a band above it.
+
 ## Item List format
 
 Upload CSV or Excel (`.xlsx`). Title rows above the headings are skipped.
