@@ -145,6 +145,20 @@ resolution step by step until each page fits.
    page references, source wording, pack quantities and add-ons. *Export full
    takeoff CSV* gives every row with its status, reasons and flags.
 
+## Label schedule cross-check
+
+AusNet-style sheets have a LABEL SCHEDULE table (ASSET | LABEL | TYPE) with a
+row for each public lighting pole (`P/L POLE`). After counting legend symbols,
+the reader counts those rows on the same sheet:
+
+- When they agree, the light rows say so.
+- When they differ, every light and pole row on that sheet gets a *Count
+  conflict with label schedule* flag giving both numbers, and any schedule
+  label (for example `PO 2602516195`) that isn't written on the plan. A small
+  gap is usually a drawing error; a large one usually means missed symbols.
+- When no symbols are counted but the schedule lists poles, a low-confidence
+  `P/L POLE` row is added with the schedule's count so the poles aren't lost.
+
 ## Item List format
 
 Upload CSV or Excel (`.xlsx`). Title rows above the headings are skipped.

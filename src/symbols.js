@@ -184,3 +184,50 @@ export function findSymbol(template, primitives) {
 export function legendTemplates(items, primitives) {
   return legendEntries(items).map(entry => ({...entry, template: legendSymbol(entry, primitives)})).filter(entry => entry.template);
 }
+
+/* --------------------------------------------------------- label schedule */
+
+const LIGHT_POLE_ASSET = /^(P\/?L|PUBLIC LIGHTING|LIGHT(ING)?)\s*(POLE|COLUMN)$/i;
+
+// Reads a "LABEL SCHEDULE" table (ASSET | LABEL | TYPE) from a page's text
+// items. Returns {poles, labels, missing} where `poles` counts the
+// public lighting pole rows, `labels` are their PO labels, and `missing` are
+// labels not written anywhere else on the sheet. Returns null when the page
+// has no label schedule.
+export function labelSchedule(items) {
+  const lines = items.filter(item => item.str?.trim() && Math.abs(item.transform[1]) < 0.01 && Math.abs(item.transform[2]) < 0.01)
+    .map(item => ({text: item.str.trim(), x: item.transform[4], y: item.transform[5], height: Math.abs(item.transform[3]) || 10}));
+  const title = lines.find(line => /^LABEL SCHEDULE$/i.test(line.text));
+  if (!title) return null;
+  const h = title.height;
+  const header = lines.filter(line => /^ASSET$/i.test(line.text) && title.y - line.y > 0 && title.y - line.y < h * 4 && Math.abs(line.x - title.x) < h * 12)
+    .sort((a, b) => b.y - a.y)[0];
+  if (!header) return null;
+  const left = header.x - h * 3, right = title.x + (title.x - header.x) + h * 12;
+  // Rows below the header, until a gap of more than three row heights.
+  const body = lines.filter(line => line.y < header.y - h * 0.5 && line.x >= left && line.x <= right).sort((a, b) => b.y - a.y);
+  const rows = [];
+  let lastY = header.y;
+  for (const line of body) {
+    if (lastY - line.y > h * 3.5) break;
+    lastY = line.y;
+    let row = rows.find(other => Math.abs(other.y - line.y) < h * 0.4);
+    if (!row) rows.push(row = {y: line.y, cells: []});
+    row.cells.push(line);
+  }
+  const assetX = header.x;
+  const entries = rows.map(row => {
+    const cells = row.cells.sort((a, b) => a.x - b.x);
+    const asset = cells.find(cell => Math.abs(cell.x - assetX) < h * 3)?.text || cells[0].text;
+    const label = cells.map(cell => cell.text).find(text => /^PO\s*\d+/i.test(text)) || '';
+    return {asset, label};
+  });
+  const poleRows = entries.filter(entry => LIGHT_POLE_ASSET.test(entry.asset.replace(/\s+/g, ' ')));
+  const labels = poleRows.map(entry => entry.label).filter(Boolean);
+  // A schedule label should also be written beside its pole on the plan.
+  const inTable = new Set(rows.flatMap(row => row.cells.map(cell => cell.text)));
+  const elsewhere = items.map(item => item.str || '').filter(text => !inTable.has(text.trim()) && !/^\s*\d+\.\s/.test(text)).join(' ');
+  const digits = label => label.replace(/\D/g, '');
+  const missing = labels.filter(label => !new RegExp('\\bPO\\s*' + digits(label) + '\\b').test(elsewhere));
+  return {poles: poleRows.length, labels, missing};
+}

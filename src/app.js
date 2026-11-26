@@ -5,7 +5,7 @@ import {
   accessoriesFor, catalogueFromRows, compareRevision, exclusionTerms, extractRows, extractScheduleRows, list, matchItem, normalize,
   packs, parseTitleBlock, quoteCsv, quoteLines, readCatalogue, reconcile,
 } from './takeoff.js';
-import {findSymbol, legendTemplates, pathPrimitives} from './symbols.js';
+import {findSymbol, labelSchedule, legendTemplates, pathPrimitives} from './symbols.js';
 import './style.css';
 
 pdf.GlobalWorkerOptions.workerSrc = worker;
@@ -434,7 +434,7 @@ async function pageVectors(page) {
   if (!page.vectors) {
     const [operators, text] = await Promise.all([page.pdf.getOperatorList(), page.pdf.getTextContent()]);
     const primitives = pathPrimitives(operators, pdf.OPS);
-    page.vectors = {primitives, legends: legendTemplates(text.items, primitives)};
+    page.vectors = {primitives, legends: legendTemplates(text.items, primitives), schedule: labelSchedule(text.items)};
   }
   return page.vectors;
 }
@@ -462,11 +462,44 @@ async function countLegendSymbols(selected, notes) {
       if (legend.pole) found.push({...base, text: legend.pole + ' (for ' + legend.label + ')', description: legend.pole.replace(/^(ON|MOUNTED ON)\s+(A|AN)\s+/i, '')});
     }
     if (found.length) {
-      rowsByPage.set(page.id, found);
       notes.push(page.file + ' p' + page.number + ': ' + found.filter(row => row.description === row.text.split(' / ')[0]).map(row => row.quantity + ' × ' + row.description).join(', '));
     }
+    scheduleCheck(page, found, notes);
+    if (found.length) rowsByPage.set(page.id, found);
   }
   return rowsByPage;
+}
+
+// Cross-checks the symbol count against the sheet's label schedule, where each
+// public lighting pole has a row. A small difference is usually a drawing
+// error and a large one a reading problem; either way it is flagged, never
+// resolved silently. With no symbols found, the schedule gives a pole count.
+function scheduleCheck(page, found, notes) {
+  const schedule = page.vectors.schedule;
+  if (!schedule?.poles) return;
+  const lights = found.filter(row => row.description === row.text.split(' / ')[0]);
+  const counted = lights.reduce((sum, row) => sum + row.quantity, 0);
+  const missing = schedule.missing.length ? ' ' + schedule.missing.join(', ') + (schedule.missing.length > 1 ? ' are' : ' is') +
+    ' in the schedule but not labelled on the plan.' : '';
+  const where = page.file + ' p' + page.number;
+  if (!lights.length) {
+    notes.push(where + ': label schedule lists ' + schedule.poles + ' P/L poles but no light symbols were counted, check the sheet');
+    found.push({pageId: page.id, point: null, points: [], approximate: true, source: 'schedule', location: 'schedule',
+      locationNote: 'label schedule', quantity: schedule.poles, unit: 'ea', baseNote: '', typical: false, extractConfidence: 'Low',
+      text: 'LABEL SCHEDULE: ' + schedule.poles + ' × P/L POLE', description: 'Public lighting pole (P/L POLE)',
+      extractNote: 'From the label schedule only: no light symbols were counted on this sheet, so the light and pole types are not known.' + missing});
+    return;
+  }
+  const summary = 'Label schedule: ' + schedule.poles + ' P/L poles; symbols counted: ' + counted + '.';
+  if (counted === schedule.poles) {
+    for (const row of found) row.extractNote += ' ' + summary.replace(/\.$/, ', they agree.');
+    return;
+  }
+  const gap = Math.abs(counted - schedule.poles);
+  const likely = gap > Math.max(2, schedule.poles * 0.2) ? 'A gap this large usually means the reader missed symbols.' : 'This may be an error on the drawing.';
+  const flag = 'Count conflict with label schedule: ' + schedule.poles + ' P/L poles listed, ' + counted + ' light symbols counted. ' + likely + missing;
+  for (const row of found) row.scheduleNote = flag;
+  notes.push(where + ': label schedule lists ' + schedule.poles + ' P/L poles but ' + counted + ' light symbols were counted');
 }
 
 byId('scan').onclick = async () => {
@@ -505,7 +538,7 @@ byId('scan').onclick = async () => {
       // Legend symbol counts replace the reader's own guesses at lights and poles on that sheet;
       // a written schedule still wins.
       const counted = legendRows.get(page.id) || [];
-      const kept = counted.length ? result.rows.filter(row => row.source === 'schedule' || !LIGHT_OR_POLE.test(row.description)) : result.rows;
+      const kept = counted.some(row => row.source === 'counted') ? result.rows.filter(row => row.source === 'schedule' || !LIGHT_OR_POLE.test(row.description)) : result.rows;
       for (const row of [...counted, ...kept]) next.push({...row, id: nextRowId++, pageId: page.id});
     }
     next.forEach(applyMatch);
