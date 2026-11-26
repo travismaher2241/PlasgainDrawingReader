@@ -2,23 +2,40 @@
 <html lang="en-AU">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Plasgain Drawing Takeoff</title></head>
 <body>
-<header><div class="brand"><span aria-hidden="true">P</span> Plasgain <small>Estimating workspace</small></div></header>
+<header><div class="brand"><span aria-hidden="true">P</span> Plasgain <small>Estimating workspace</small></div><span id="ai-status" class="ai-status">Checking AI reader…</span></header>
 <main>
-<section class="intro"><h1>Drawing takeoff</h1><p>Upload drawings, review the takeoff against the source, and export verified items for quoting.</p></section>
+<section class="intro"><h1>Drawing takeoff</h1><p>Upload drawings, choose the sheets to read, verify every line against the source, and export a quote-ready list.</p></section>
+
 <section class="inputs" aria-label="Project inputs">
-<label>Project name<input id="project" placeholder="Enter a project name"></label>
-<label>Drawing PDFs<input id="drawings" type="file" accept=".pdf,application/pdf" multiple></label>
-<label>Item List CSV<input id="catalogue" type="file" accept=".csv,text/csv"><small id="catalogue-status">Required for SKU matching</small></label>
+<label>Project name<input id="project" placeholder="Filled from the title block when visible"></label>
+<label>Drawing PDFs<input id="drawings" type="file" accept=".pdf,application/pdf" multiple><small>Each page becomes a sheet you can include or skip</small></label>
+<label>Item List (CSV or Excel)<input id="catalogue" type="file" accept=".csv,text/csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"><small id="catalogue-status">Required for SKU matching</small></label>
 </section>
-<section class="panel"><div class="bar"><h2>Drawing pages</h2><button id="scan" disabled>Scan selected pages</button></div>
-<div id="pages" class="pages"><p>Upload a PDF to select the sheets to scan.</p></div></section>
+
+<details class="panel library" id="library">
+<summary><h2>Item List, aliases &amp; exclusion rules</h2><small id="library-summary"></small></summary>
+<div class="library-grid">
+<div><h3>Saved drawing aliases</h3><p class="hint">Drawing wording that always maps to a SKU. Added automatically when you correct a SKU.</p><div id="aliases"></div></div>
+<div><h3>Exclusion rules</h3><p class="hint">One phrase per line. Drawing items containing a phrase are excluded as non-supply. Item List <code>exclusion_notes</code> are added too.</p>
+<textarea id="exclusions" rows="6"></textarea><button id="save-exclusions" class="secondary">Save rules</button></div>
+<div><h3>Correction log</h3><p class="hint">Every SKU override, for reviewing new drawing terms.</p><p id="corrections-count"></p><button id="export-corrections" class="secondary">Download log</button></div>
+</div>
+</details>
+
+<section class="panel"><div class="bar"><h2>Drawing pages</h2><div class="actions"><button id="select-all" class="secondary" disabled>Select all</button><button id="select-none" class="secondary" disabled>Select none</button><button id="scan" disabled>Read selected pages</button></div></div>
+<div id="pages" class="pages"><p>Upload a PDF to select the sheets to read.</p></div></section>
 <p id="status" role="status" aria-live="polite"></p>
+
 <section class="workspace">
-<div class="panel"><div class="bar"><h2>Source drawing</h2><span id="page-title"></span></div>
+<div class="panel sticky"><div class="bar"><h2>Source drawing</h2><div class="actions"><span id="page-title"></span><button id="zoom-out" class="secondary" aria-label="Zoom out">−</button><button id="zoom-in" class="secondary" aria-label="Zoom in">+</button></div></div>
 <div class="viewer" id="viewer"><p>Select a drawing page or takeoff row.</p></div></div>
-<div class="panel"><div class="bar"><h2>Takeoff review</h2><div class="actions"><button id="add" class="secondary" disabled>Add item</button><button id="export" disabled>Export verified CSV</button></div></div>
-<div id="review"><p class="empty">Scanned items will appear here for verification.</p></div></div>
+<div class="panel"><div class="bar"><h2>Takeoff review</h2><div class="actions"><button id="add" class="secondary" disabled>Add item</button></div></div>
+<div class="filters" role="group" aria-label="Filter rows"><button class="chip active" data-filter="all">All</button><button class="chip" data-filter="review">Needs review</button><button class="chip" data-filter="unmatched">Unmatched</button><button class="chip" data-filter="excluded">Excluded</button><button class="chip" data-filter="verified">Verified</button><span id="counts"></span></div>
+<div id="review"><p class="empty">Read pages to list items here for verification.</p></div></div>
 </section>
+
+<section class="panel"><div class="bar"><h2>Quote-ready list</h2><div class="actions"><button id="export-detail" class="secondary" disabled>Export full takeoff CSV</button><button id="export" disabled>Export quote CSV</button></div></div>
+<div id="summary"><p class="empty">Verified rows with an active SKU and a quantity appear here.</p></div></section>
 </main>
 <script type="module" src="/src/app.js"></script>
 </body></html>

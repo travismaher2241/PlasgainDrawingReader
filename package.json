@@ -1,12 +1,14 @@
 {
   "name": "plasgaindrawingreader",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Plasgain drawing-to-quote takeoff app",
+  "main": "server/index.js",
   "scripts": {
     "test": "node --test",
     "dev": "vite --host 0.0.0.0",
-    "build": "vite build"
+    "server": "node --env-file-if-exists=.env server/index.js",
+    "build": "vite build",
+    "start": "npm run build && node --env-file-if-exists=.env server/index.js"
   },
   "repository": {
     "type": "git",
@@ -21,7 +23,12 @@
   },
   "homepage": "https://github.com/travismaher2241/PlasgainDrawingReader#readme",
   "dependencies": {
+    "@google/genai": "^3.6.1",
     "pdfjs-dist": "^6.5.438",
+    "read-excel-file": "^9.3.20",
     "vite": "^8.3.8"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }
