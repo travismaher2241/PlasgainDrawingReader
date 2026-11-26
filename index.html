@@ -1,12 +1,26 @@
 <!doctype html>
 <html lang="en-AU">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Plasgain Drawing Takeoff</title></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Plasgain Drawing Takeoff</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"></head>
 <body>
-<header><div class="brand"><span aria-hidden="true">P</span> Plasgain <small>Estimating workspace</small></div><span id="ai-status" class="ai-status">Checking AI reader…</span></header>
+<aside class="sidebar">
+<div class="brand"><img src="/plasgain-wordmark.png" alt="Plasgain" width="160" height="26"><span class="app-name">Drawing Takeoff</span></div>
+<nav class="nav" aria-label="Sections">
+<a href="#inputs" class="active"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4M7 9l5-5 5 5M5 20h14"/></svg>Project inputs</a>
+<a href="#pages-panel"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l5 5v13H7zM14 3v5h5"/></svg>Drawing pages</a>
+<a href="#review-panel"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h10M4 12h10M4 18h7M16 16l2 2 4-4"/></svg>Takeoff review</a>
+<a href="#quote-panel"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v16H5zM9 9h6M9 13h6M9 17h3"/></svg>Quote-ready list</a>
+<span class="nav-label">Settings</span>
+<a href="#library"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v4H4zM4 11h16v8H4zM8 15h4"/></svg>Item List &amp; rules</a>
+</nav>
+</aside>
+<div class="shell">
+<header class="topbar"><div class="crumb"><span>Estimating</span><span aria-hidden="true">/</span><strong>Drawing takeoff</strong></div><span id="ai-status" class="ai-status">Checking AI reader…</span></header>
 <main>
 <section class="intro"><h1>Drawing takeoff</h1><p>Upload drawings, choose the sheets to read, verify every line against the source, and export a quote-ready list.</p></section>
 
-<section class="inputs" aria-label="Project inputs">
+<section class="inputs" id="inputs" aria-label="Project inputs">
 <label>Project name<input id="project" placeholder="Filled from the title block when visible"></label>
 <label>Drawing PDFs<input id="drawings" type="file" accept=".pdf,application/pdf" multiple><small>Each page becomes a sheet you can include or skip</small></label>
 <label>Item List (CSV or Excel)<input id="catalogue" type="file" accept=".csv,text/csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"><small id="catalogue-status">Required for SKU matching</small><button id="ostendo-sync" class="secondary small" type="button" hidden>Sync from Ostendo</button></label>
@@ -22,11 +36,11 @@
 </div>
 </details>
 
-<section class="panel"><div class="bar"><h2>Drawing pages</h2><div class="actions"><button id="select-all" class="secondary" disabled>Select all</button><button id="select-none" class="secondary" disabled>Select none</button><button id="scan" disabled>Read selected pages</button></div></div>
+<section class="panel" id="pages-panel"><div class="bar"><h2>Drawing pages</h2><div class="actions"><button id="select-all" class="secondary" disabled>Select all</button><button id="select-none" class="secondary" disabled>Select none</button><button id="scan" disabled>Read selected pages</button></div></div>
 <div id="pages" class="pages"><p>Upload a PDF to select the sheets to read.</p></div></section>
 <p id="status" role="status" aria-live="polite"></p>
 
-<section class="workspace">
+<section class="workspace" id="review-panel">
 <div class="panel sticky"><div class="bar"><h2>Source drawing</h2><div class="actions"><span id="page-title"></span><button id="page-prev" class="secondary" aria-label="Previous page" title="Previous page">‹ Prev</button><button id="page-next" class="secondary" aria-label="Next page" title="Next page">Next ›</button><button id="download-markup" class="secondary" title="Download every sheet that was read, marked up with the lights, pole labels and a key, as PNGs in one zip">Download marked-up pages</button><button id="zoom-out" class="secondary" aria-label="Zoom out">−</button><button id="zoom-in" class="secondary" aria-label="Zoom in">+</button></div></div>
 <div class="viewer" id="viewer"><p>Select a drawing page or takeoff row.</p></div></div>
 <div class="panel"><div class="bar"><h2>Takeoff review</h2><div class="actions"><button id="add" class="secondary" disabled>Add item</button></div></div>
@@ -34,8 +48,10 @@
 <div id="review"><p class="empty">Read pages to list items here for verification.</p></div></div>
 </section>
 
-<section class="panel"><div class="bar"><h2>Quote-ready list</h2><div class="actions"><button id="export-detail" class="secondary" disabled>Export full takeoff CSV</button><button id="export" disabled>Export quote CSV</button></div></div>
+<section class="panel" id="quote-panel"><div class="bar"><h2>Quote-ready list</h2><div class="actions"><button id="export-detail" class="secondary" disabled>Export full takeoff CSV</button><button id="export" disabled>Export quote CSV</button></div></div>
 <div id="summary"><p class="empty">Verified rows with an active SKU and a quantity appear here.</p></div></section>
 </main>
+</div>
+<script type="module" src="/src/nav.js"></script>
 <script type="module" src="/src/app.js"></script>
 </body></html>
