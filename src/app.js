@@ -432,15 +432,22 @@ byId('scan').onclick = async () => {
   const next = [];
   const notes = [];
   const selected = pages.filter(page => page.selected);
+  let aiStopped = '';
   try {
     for (const [index, page] of selected.entries()) {
       status('Reading ' + page.file + ' p' + page.number + ' (' + (index + 1) + ' of ' + selected.length + ')' + (health.ai ? ' with the AI reader…' : '…'));
       let result;
-      if (health.ai) {
+      if (health.ai && !aiStopped) {
         try {
           result = await readPageWithAi(page);
         } catch (error) {
-          notes.push('AI could not read ' + page.file + ' p' + page.number + ' (' + error.message + '), used text-only reading');
+          // A quota or key problem will fail every page, so say it once and read the rest as text.
+          if (/^Gemini (quota|key|access)/.test(error.message)) {
+            aiStopped = error.message;
+            notes.push(error.message + ' The remaining pages were read as text only.');
+          } else {
+            notes.push('AI could not read ' + page.file + ' p' + page.number + ' (' + error.message + '), used text-only reading');
+          }
           result = readPageFromText(page);
         }
       } else {

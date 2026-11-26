@@ -63,3 +63,12 @@ test('Gemini fallback prefers the newest stable Pro model', async () => {
   assert.deepEqual(rankModels(['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-3-pro-preview', 'gemini-3-flash-preview', 'gemini-2.5-flash-image', 'text-embedding-004', 'gemini-2.5-flash-lite']),
     ['gemini-3-pro-preview', 'gemini-3-flash-preview', 'gemini-2.5-pro', 'gemini-2.5-flash']);
 });
+
+test('Gemini quota errors become one plain sentence', async () => {
+  const {friendlyError} = await import('../server/gemini.js');
+  const raw = new Error('{"error":{"code":429,"message":"You exceeded your current quota... Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 0, model: gemini-3.1-pro, description: ... Free Tier. Please retry in 6h48m53.9s.","status":"RESOURCE_EXHAUSTED"}}');
+  assert.match(friendlyError(raw).message, /^Gemini quota: this API key is on the free tier/);
+  assert.match(friendlyError(new Error('{"error":{"code":429,"message":"Please retry in 41.5s.","status":"RESOURCE_EXHAUSTED"}}')).message, /^Gemini quota exceeded, try again in about 41s/);
+  const other = new Error('boom');
+  assert.equal(friendlyError(other), other);
+});
