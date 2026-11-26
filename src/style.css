@@ -29,7 +29,7 @@ button:disabled { opacity: .48; cursor: default; }
 .viewer { padding: 14px; background: #e6ebf0; max-height: 75vh; overflow: auto; }
 figure { position: relative; margin: 0; }
 figure canvas { display: block; width: 100%; height: auto; }
-.marker { position: absolute; width: 13px; height: 13px; border: 2px solid #a74406; background: #ffd965; border-radius: 50%; transform: translate(-50%, -50%); }
+.marker { position: absolute; width: 30px; height: 30px; border: 3px solid #ffb703; background: transparent; border-radius: 50%; transform: translate(-50%, -50%); box-shadow: 0 0 0 2px rgba(20, 38, 59, .6); pointer-events: none; }
 .empty { padding: 0 14px; }
 .line { padding: 14px; border-bottom: 1px solid #d9e0e8; }
 .row-title, .row-actions, .actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
@@ -76,10 +76,12 @@ button.small { padding: 2px 8px; font-size: 12px; }
 .details .warn { color: #872922; }
 .details .accessory { color: #1c5060; font-weight: 600; }
 .excluded-tag { background: #e3e6ea; color: #3b4756; }
-.marker.approximate { border-style: dashed; width: 26px; height: 26px; background: rgba(255, 217, 101, .45); }
+.marker.approximate { border-style: dashed; width: 34px; height: 34px; background: rgba(255, 217, 101, .3); }
 #summary { overflow-x: auto; }
 #summary table { width: 100%; border-collapse: collapse; font-size: 13px; }
 #summary th, #summary td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #e3e8ee; vertical-align: top; }
 #summary .hint, #summary .empty { padding: 0 14px; }
 section.panel { margin-top: 16px; }
 .line.excluded { border-left-color: #aab4bf; }
+
+.markup-key { display: block; max-width: 100%; margin: 0 0 10px; background: #fff; }

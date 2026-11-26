@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {findSymbol, labelSchedule, legendEntries, legendTemplates, pathPrimitives} from '../src/symbols.js';
+import {findSymbol, labelSchedule, legendEntries, legendTemplates, pairLabels, pathPrimitives, poleLabels} from '../src/symbols.js';
 
 const OPS = {save: 1, restore: 2, transform: 3, constructPath: 4};
 const K = 0.5523; // Bezier circle constant
@@ -76,4 +76,18 @@ test('label schedule counts P/L pole rows and finds labels missing from the plan
   ];
   assert.deepEqual(labelSchedule(items), {poles: 3, labels: ['PO 2602515854', 'PO 2602515856', 'PO 2602516195'], missing: ['PO 2602516195']});
   assert.equal(labelSchedule([text('LIGHTING :', 100, 420)]), null);
+});
+
+test('pole labels on the plan are found in any rotation and paired one-to-one with lights', () => {
+  const labels = poleLabels([
+    {str: 'BID PO 2602515854', width: 100, transform: [0, 10, -10, 0, 500, 500]},
+    {str: 'BID PO 2602515856', width: 100, transform: [10, 0, 0, 10, 900, 300]},
+    {str: 'BID PO 2602515999', width: 100, transform: [10, 0, 0, 10, 3000, 3000]},
+    text('23. REMOVE (E) PL BID PO 2602089257', 100, 1000),
+    text('PO 2602515854', 973, 390),
+  ]);
+  assert.deepEqual(labels.map(label => [label.label, Math.round(label.x), Math.round(label.y)]),
+    [['BID PO 2602515854', 495, 550], ['BID PO 2602515856', 950, 305], ['BID PO 2602515999', 3050, 3005]]);
+  const paired = pairLabels(labels, [[560, 540], [1000, 250], [520, 560]]);
+  assert.deepEqual(paired.map(label => label.point), [[520, 560], [1000, 250], null]);
 });

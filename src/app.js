@@ -5,7 +5,8 @@ import {
   accessoriesFor, catalogueFromRows, compareRevision, exclusionTerms, extractRows, extractScheduleRows, list, matchItem, normalize,
   packs, parseTitleBlock, quoteCsv, quoteLines, readCatalogue, reconcile,
 } from './takeoff.js';
-import {findSymbol, labelSchedule, legendTemplates, pathPrimitives} from './symbols.js';
+import {findSymbol, labelSchedule, legendTemplates, pairLabels, pathPrimitives, poleLabels} from './symbols.js';
+import {MARK_STYLES, drawKey, drawMarkup, keySize} from './markup.js';
 import './style.css';
 
 pdf.GlobalWorkerOptions.workerSrc = worker;
@@ -64,6 +65,7 @@ function syncButtons() {
   byId('add').disabled = busy || !currentPage;
   byId('export').disabled = busy || !quoteLines(rows, catalogue, pages).length;
   byId('export-detail').disabled = busy || !rows.length;
+  byId('download-markup').disabled = busy || !currentPage;
 }
 
 /* ------------------------------------------------------ shared library */
@@ -214,6 +216,16 @@ async function showPage(page, row) {
   syncButtons();
   try {
     const viewport = await renderPage(page, canvas, 1800 * Math.min(zoom, 2.5));
+    const markup = pageMarkup(page);
+    drawMarkup(canvas.getContext('2d'), viewport, markup);
+    if ((markup.groups.length || markup.labels.length) && figure.isConnected) {
+      const key = element('canvas', null, 'markup-key');
+      const size = keySize(key.getContext('2d'), markup, 1.4);
+      key.width = size.width + size.margin;
+      key.height = size.height + size.margin;
+      drawKey(key.getContext('2d'), markup, 1.4, 0, 0);
+      byId('viewer').prepend(key);
+    }
     const points = row?.points?.length ? row.points : row?.point ? [row.point] : [];
     points.forEach((point, index) => {
       const [x, y] = viewport.convertToViewportPoint(...point);
@@ -228,6 +240,54 @@ async function showPage(page, row) {
     if (figure.isConnected) figure.replaceChildren(element('p', 'Page could not be rendered. ' + error.message));
   }
 }
+
+// What to mark on a sheet: the counted lights, one style per light type (the
+// same style on every sheet), and the pole labels paired with them.
+function pageMarkup(page) {
+  const counted = rows.filter(row => row.source === 'counted' && row.points?.length && !row.excluded);
+  const types = [...new Set(counted.filter(row => row.description === row.text.split(' / ')[0]).map(row => row.description))];
+  const groups = counted.filter(row => row.pageId === page.id && row.description === row.text.split(' / ')[0]).map(row => ({
+    name: row.description, points: row.points, style: MARK_STYLES[types.indexOf(row.description) % MARK_STYLES.length],
+    pole: counted.find(other => other.pageId === page.id && other.text.endsWith('(for ' + row.description + ')'))?.description || ''}));
+  const labels = page.vectors?.labels?.length ? pairLabels(page.vectors.labels, groups.flatMap(group => group.points)) : [];
+  const title = [page.meta.drawingNumber || page.file, 'p' + page.number, page.meta.revision ? 'Rev ' + page.meta.revision : ''].filter(Boolean).join(' · ');
+  return {title, groups, labels, schedule: page.vectors?.schedule};
+}
+
+byId('download-markup').onclick = async () => {
+  const page = currentPage;
+  if (!page) return;
+  const button = byId('download-markup');
+  button.disabled = true;
+  try {
+    // The sheet with its markup, under a band that holds the key.
+    const sheet = element('canvas');
+    const viewport = await renderPage(page, sheet, 4200);
+    const markup = pageMarkup(page);
+    drawMarkup(sheet.getContext('2d'), viewport, markup);
+    const canvas = element('canvas');
+    const scale = sheet.width / 2000;
+    const key = keySize(canvas.getContext('2d'), markup, scale);
+    canvas.width = sheet.width;
+    canvas.height = sheet.height + key.height + key.margin * 2;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    drawKey(ctx, markup, scale, key.margin, key.margin);
+    ctx.drawImage(sheet, 0, key.height + key.margin * 2);
+    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+    const link = element('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = (page.meta.drawingNumber || page.file.replace(/\.pdf$/i, '')) + '-p' + page.number + '-marked.png';
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(link.href), 5000);
+  } catch (error) {
+    status('Could not make the marked-up image. ' + error.message);
+  } finally {
+    button.disabled = false;
+    syncButtons();
+  }
+};
 
 for (const [id, factor] of [['zoom-in', 1.5], ['zoom-out', 1 / 1.5]]) {
   byId(id).onclick = () => {
@@ -434,7 +494,7 @@ async function pageVectors(page) {
   if (!page.vectors) {
     const [operators, text] = await Promise.all([page.pdf.getOperatorList(), page.pdf.getTextContent()]);
     const primitives = pathPrimitives(operators, pdf.OPS);
-    page.vectors = {primitives, legends: legendTemplates(text.items, primitives), schedule: labelSchedule(text.items)};
+    page.vectors = {primitives, legends: legendTemplates(text.items, primitives), schedule: labelSchedule(text.items), labels: poleLabels(text.items)};
   }
   return page.vectors;
 }
