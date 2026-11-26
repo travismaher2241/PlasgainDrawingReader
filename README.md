@@ -167,8 +167,9 @@ sheet). Each `BID PO` pole label is circled and paired one-to-one with the
 nearest light: green with a tick when paired, dashed red with a question mark
 when no light is near it. A key above the drawing gives the count of each
 light and its pole, the pole label tally and the label schedule check.
-**Download marked-up PNG** saves the current sheet at full size with the key
-in a band above it.
+**Download marked-up pages** saves every sheet that was read as a full-size
+PNG with the key in a band above it, all in one zip file (a single sheet
+downloads as a plain PNG). **‹ Prev** and **Next ›** step through the sheets.
 
 ## Item List format
 
