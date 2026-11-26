@@ -47,14 +47,15 @@ const sameText = (a, b) => {
 };
 
 // Request handler shared by the local server and the Vercel function.
-export function createHandler({dataDir = process.env.DATA_DIR || path.join(here, '..', 'data'),
+export function createHandler({dataDir = process.env.DATA_DIR || (process.env.VERCEL ? '/tmp/plasgain' : path.join(here, '..', 'data')),
   staticDir = path.join(here, '..', 'dist'), ai, store = createStore(dataDir), passcode = process.env.APP_PASSCODE} = {}) {
   const reader = ai ?? null;
 
   const routes = {
     'GET /api/health': async () => {
       const engine = reader ?? await import('./gemini.js');
-      return {ok: true, ai: engine.configured(), model: engine.configured() ? engine.MODEL : '', passcode: !!passcode, storage: store.kind};
+      return {ok: true, ai: engine.configured(), model: engine.configured() ? engine.MODEL : '', passcode: !!passcode,
+        storage: store.kind === 'file' && process.env.VERCEL ? 'temporary' : store.kind};
     },
     'POST /api/extract': async request => {
       const engine = reader ?? await import('./gemini.js');

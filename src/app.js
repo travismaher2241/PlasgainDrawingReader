@@ -163,6 +163,9 @@ async function loadHealth() {
   byId('ai-status').textContent = health.ai ? 'AI reader on (' + health.model + ')' :
     health.offline ? 'Server not running: text-only reading' : 'AI reader off: set GEMINI_API_KEY';
   byId('ai-status').classList.toggle('on', !!health.ai);
+  if (health.storage === 'temporary') {
+    status('Shared storage is not connected (Firebase settings missing), so Item List uploads, aliases and corrections will not be kept.');
+  }
 }
 
 /* ------------------------------------------------------------ PDF pages */
