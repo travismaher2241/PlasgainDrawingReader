@@ -2,7 +2,7 @@ import * as pdf from 'pdfjs-dist';
 import worker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import {readSheet} from 'read-excel-file/browser';
 import {
-  accessoriesFor, catalogueFromRows, isHvEquipment, compareRevision, exclusionTerms, extractRows, extractScheduleRows, list, matchItem, normalize,
+  accessoriesFor, catalogueFromRows, notSupplied, sideEntryOnly, compareRevision, exclusionTerms, extractRows, extractScheduleRows, list, matchItem, normalize,
   packs, parseTitleBlock, quoteCsv, quoteLines, readCatalogue, reconcile,
 } from './takeoff.js';
 import {existingPoleLabels, findSymbol, labelSchedule, legendTemplates, pairLabels, pathPrimitives, poleLabels, sameTemplate} from './symbols.js';
@@ -549,6 +549,7 @@ function readPageFromText(page) {
 /* ------------------------------------------------ legend symbol counting */
 
 const CABLE = /\bcable\b(?!\s*(cover|marker|tape|warning|pit|tie))|\bU\/G\b|\bXLPE\b|\b\d+(\.\d+)?\s*kV\b/i;
+const LABEL_SCHEDULE = /\blabel\s+schedule\b/i;
 const LIGHT_OR_POLE = /\b(lantern|luminaire|streetled|street ?light|light(ing)? pole|pole|column|outreach)\b/i;
 
 async function pageVectors(page) {
@@ -602,7 +603,7 @@ async function countLegendSymbols(selected, notes) {
           (group.length > 1 ? ' The legend draws ' + group.length + ' types with this same symbol (' + group.map(other => other.label + (other.pole ? ' ' + other.pole : '')).join('; ') +
             '), so the count covers all of them; split it by hand.' : '')};
       found.push({...base, text: legend.label + (legend.pole ? ' / ' + legend.pole : ''), description: legend.label});
-      if (legend.pole) found.push({...base, text: legend.pole + ' (for ' + legend.label + ')', description: legend.pole.replace(/^(AT\s+.*?\s+)?(ON|MOUNTED ON)\s+(A|AN)\s+/i, (all, at) => at ? at.replace(/^AT\s+/i, '') : '')});
+      if (legend.pole) found.push({...base, lantern: legend.label, text: legend.pole + ' (for ' + legend.label + ')', description: legend.pole.replace(/^(AT\s+.*?\s+)?(ON|MOUNTED ON)\s+(A|AN)\s+/i, (all, at) => at ? at.replace(/^AT\s+/i, '') : '')});
     }
     if (found.length) {
       notes.push(page.file + ' p' + page.number + ': ' + found.filter(row => row.description === row.text.split(' / ')[0]).map(row => row.quantity + ' × ' + row.description).join(', '));
@@ -727,10 +728,14 @@ byId('scan').onclick = async () => {
       const counted = legendRows.get(page.id) || [];
       const lightsCounted = counted.some(row => row.source === 'counted');
       // Cables (from cable schedules and callouts) are not part of the takeoff.
-      // So is high-voltage and substation equipment, which the network operator supplies.
-      const hv = result.rows.filter(isHvEquipment);
-      if (hv.length) notes.push('Left out ' + hv.length + ' HV or substation item' + (hv.length > 1 ? 's' : '') + ' on ' + page.file + ' p' + page.number + ' (not Plasgain supply)');
-      const kept = result.rows.filter(row => !hv.includes(row) && !CABLE.test(row.description + ' ' + (row.text || '')) &&
+      // So is anything Plasgain doesn't supply (HV and substation equipment,
+      // pillars, service pits, bollards, bores, conduit for now), and the
+      // label schedule, which is only a cross-check on the light count.
+      const left = result.rows.map(row => notSupplied(row) || (LABEL_SCHEDULE.test(row.locationNote + ' ' + (row.text || '')) ? 'label schedule' : ''));
+      const leftOut = [...new Set(left.filter(Boolean))];
+      if (leftOut.length) notes.push(page.file + ' p' + page.number + ': left out ' + left.filter(Boolean).length + ' item' + (left.filter(Boolean).length > 1 ? 's' : '') +
+        ' Plasgain does not supply or that only check the count (' + leftOut.join(', ') + ')');
+      const kept = result.rows.filter((row, index) => !left[index] && !CABLE.test(row.description + ' ' + (row.text || '')) &&
         (!lightsCounted || row.source === 'schedule' || !LIGHT_OR_POLE.test(row.description)));
       for (const row of [...counted, ...kept]) next.push({...row, id: nextRowId++, pageId: page.id});
     }
@@ -971,7 +976,9 @@ function applyMatch(row) {
       reason: 'Measured from the drawing. Not matched to an Item List SKU; choose one if it should go on the quote.'});
     return;
   }
-  const result = matchItem(row.description, catalogue, library.aliases, {exclusions: exclusionTerms(catalogue, library.exclusions)});
+  let result = matchItem(row.description, catalogue, library.aliases, {exclusions: exclusionTerms(catalogue, library.exclusions)});
+  const lantern = row.lantern || (row.text || '').match(/\(for (.*)\)$/)?.[1] || '';
+  if (/\bstreet\s*led\b/i.test(lantern)) result = sideEntryOnly(result, catalogue);
   row.autoSku = result.sku;
   if (!row.skuOverride) row.sku = row.skuCleared ? '' : result.sku;
   row.matchConfidence = row.skuOverride ? 'High' : result.confidence;

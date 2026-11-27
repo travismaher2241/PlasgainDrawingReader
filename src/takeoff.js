@@ -307,6 +307,46 @@ export function isHvEquipment(row) {
   return HV_EQUIPMENT.test([row.description, row.text].filter(Boolean).join(' ')) || /\bBID\s*SS\b/i.test(row.locationNote || '');
 }
 
+// Items Plasgain does not supply, which the reading leaves out altogether:
+// pillars, service and temporary pits, bollards and protective posts, bores,
+// and (until conduit is added to the Item List) conduit runs. The trench
+// length line is measured separately and is kept.
+const NOT_SUPPLIED = [
+  [/\bpillars?\b/i, 'pillar'],
+  [/\bservice\s+pits?\b/i, 'service pit'],
+  [/\btemp(?:orary)?\.?\s*pits?\b|\binsulated\s+ends?\b/i, 'temporary pit'],
+  [/\bbollards?\b|\bprotective\s+posts?\b/i, 'bollard or protective post'],
+  [/\bbores?\b|\bboring\b|\bunder[\s-]*bore\b/i, 'bore'],
+  [/\bconduits?\b|\b\d+\s*NB\b/i, 'conduit'],
+];
+
+// Returns why a row is not Plasgain supply ('' when it is).
+export function notSupplied(row) {
+  if (isHvEquipment(row)) return 'HV or substation equipment';
+  const words = [row.description, row.text].filter(Boolean).join(' ');
+  return NOT_SUPPLIED.find(([pattern]) => pattern.test(words))?.[1] || '';
+}
+
+// A StreetLED lantern always mounts on a side entry outreach: top entry
+// versions of the pole are dropped from the choice, and when one side entry
+// version is left it is picked.
+export function sideEntryOnly(result, catalogue) {
+  const describe = sku => catalogue.find(item => item.sku === sku)?.description || '';
+  const top = sku => /\btop[\s-]*entry\b/i.test(describe(sku));
+  const side = sku => /\bside[\s-]*entry\b/i.test(describe(sku));
+  const options = [...new Set([result.sku, ...(result.candidates || [])].filter(Boolean))];
+  if (!options.some(top)) return result;
+  const kept = options.filter(sku => !top(sku));
+  const sides = kept.filter(side);
+  if (sides.length === 1) {
+    return {...result, sku: sides[0], confidence: 'Medium', candidates: kept.filter(sku => sku !== sides[0]).slice(0, 3),
+      reason: 'StreetLED lanterns need a side entry outreach, so the side entry version was picked'};
+  }
+  const sku = top(result.sku) ? '' : result.sku;
+  return {...result, sku, candidates: kept.filter(other => other !== sku).slice(0, 3),
+    reason: result.reason + ' · Top entry outreaches left out: StreetLED lanterns need side entry'};
+}
+
 export function exclusionTerms(catalogue = [], rules = []) {
   const fromItems = catalogue.flatMap(item => list(item.exclusion_notes));
   return [...new Set([...fromItems, ...list(rules)].map(term => normalize(term)).filter(Boolean))];
