@@ -26,6 +26,7 @@ Rules:
 - If the same product appears in a schedule and in plan view on this page, list both entries separately with their own count_method. Do not merge or average counts.
 - Items drawn inside a "typical" detail or section: location "typical_detail" or "section".
 - Ignore civil and installation work (trenching, excavation, concrete, backfill, labour, survey, traffic control) and anything marked existing to remain or by others.
+- Ignore high-voltage and substation network equipment: transformers, kiosks, HV switches, HV fusegear, elbow connectors, insulated caps, isolator and feeder strips, and any schedule for a substation asset ("BID SS").
 - uncertainty: state the exact reason whenever symbols overlap, sit near the page edge or crop, are hard to read, or conflict with another view on the page. Leave empty if none.
 - box: approximate position as fractions of the full page width and height (origin top left), or null if unsure.
 - title_block: copy the project name, drawing number, title, revision and status (e.g. TENDER, FOR CONSTRUCTION) only if visible; otherwise use empty strings.

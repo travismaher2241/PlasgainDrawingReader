@@ -205,6 +205,10 @@ says so.
 
 Cables from cable schedules and callouts are left out of the takeoff.
 
+## HV and substation equipment
+
+Transformers, kiosks, HV switches, HV fusegear, elbow connectors, insulated caps, isolator and feeder strips, and anything in a substation ("BID SS") schedule are supplied by the network operator, not Plasgain. The AI reader is told to skip them, and any that still come through (from the AI or the text reading) are left out of the takeoff, with a note in the status saying how many.
+
 ## CAD and scanned sheets
 
 Each sheet gets a label when it is uploaded, worked out from what the PDF page is made of:

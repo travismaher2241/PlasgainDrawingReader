@@ -290,6 +290,23 @@ export const NON_SUPPLY_TERMS = ['trenching', 'trench', 'excavation', 'excavate'
   'reinstatement', 'traffic control', 'survey', 'set out', 'testing and commissioning', 'commissioning', 'by others',
   'existing to remain', 'existing retained', 'remove existing', 'demolish', 'make good'];
 
+// High-voltage and substation network equipment (kiosk and transformer
+// parts, HV switches and cable fittings, "BID SS" substation schedules) is
+// supplied by the network operator, never by Plasgain. Rows for it are left
+// out of the takeoff altogether.
+const HV_EQUIPMENT = new RegExp([
+  String.raw`\bH\.?V\.?\b`, String.raw`\bhigh[\s-]*voltage\b`, String.raw`\btransformers?\b`, String.raw`\b\d+(?:\.\d+)?\s*kVA\b`,
+  String.raw`\bsub[\s-]*stations?\b`, String.raw`\bkiosks?\b`, String.raw`\bswitch\s*gear\b`, String.raw`\bring\s+main\b`, String.raw`\bRMU\b`,
+  String.raw`\b(?:isolator|feeder)\s+strips?\b`, String.raw`\bfuse\s*gear\b`, String.raw`\belbow\s+connectors?\b`, String.raw`\binsulated\s+caps?\b`,
+  String.raw`\bsurge\s+(?:arrester|arrestor|diverter)s?\b`, String.raw`\bBID\s*SS\b`,
+].join('|'), 'i');
+
+// Where a row sits only counts when it names a substation schedule: an item
+// merely drawn near an HV cable is still Plasgain's.
+export function isHvEquipment(row) {
+  return HV_EQUIPMENT.test([row.description, row.text].filter(Boolean).join(' ')) || /\bBID\s*SS\b/i.test(row.locationNote || '');
+}
+
 export function exclusionTerms(catalogue = [], rules = []) {
   const fromItems = catalogue.flatMap(item => list(item.exclusion_notes));
   return [...new Set([...fromItems, ...list(rules)].map(term => normalize(term)).filter(Boolean))];
