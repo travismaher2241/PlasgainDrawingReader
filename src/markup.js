@@ -41,7 +41,7 @@ function tag(ctx, text, x, y, size, colour) {
 
 // groups: [{style, name, pole, points: [[x, y]] in PDF units}]
 // labels: [{label, x, y, size, point}] from pairLabels
-export const TRENCH_COLOUR = '#12b03a';
+export const TRENCH_COLOUR = '#0a84ff'; // bright blue: clear of the green pole label circles
 
 export function drawMarkup(ctx, viewport, {groups = [], labels = [], trench = []}) {
   const r = 7 + 7 * viewport.scale;

@@ -194,7 +194,7 @@ sample line, collects every line drawn that way on the sheet, joins the
 dashes into runs, counts conduits lying side by side (within 2.5 m) once, and
 converts to metres with the sheet's scale bar ("SCALE OF METRES" with 0 ...
 50 above it), or a written 1:N scale when there is no bar. The measured runs
-are drawn in green on the viewer and the marked-up PNGs. The line is not
+are drawn in blue on the viewer and the marked-up PNGs. The line is not
 matched to the Item List automatically; choose a SKU if it should be quoted.
 Only conduit on the plan itself is measured: runs in sections, enlargements
 and joint details elsewhere on the sheet (away from the plan's `BID PO`
