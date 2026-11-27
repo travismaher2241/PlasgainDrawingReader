@@ -251,3 +251,30 @@ test('HV and substation equipment is recognised; lighting and pillars are not', 
     assert.ok(!isHvEquipment({description, locationNote: 'plan view near HV cable'}), description);
   }
 });
+
+test('items Plasgain does not supply are recognised', async () => {
+  const {notSupplied} = await import('../src/takeoff.js');
+  const cases = {'PILLAR (TYPE 12)': 'pillar', 'SERVICE PIT': 'service pit', 'TEMP PIT': 'temporary pit', 'TEMPORARY PIT': 'temporary pit',
+    'PROTECTIVE POST (BOLLARD)': 'bollard or protective post', 'PROTECTIVE POSTS': 'bollard or protective post', '180 PE (BORE)': 'bore',
+    '150NB CONDUIT (SPARE)': 'conduit', '150NB': 'conduit', 'TRANSFORMER 315kVA': 'HV or substation equipment'};
+  for (const [description, why] of Object.entries(cases)) assert.equal(notSupplied({description}), why, description);
+  for (const description of ['SYLVANIA STREET LED "14W" LANTERN', '5.5m Lincoln pole', 'Pit Electrical Round 390mm', 'COVER SLABS', 'Trench length']) {
+    assert.equal(notSupplied({description}), '', description);
+  }
+});
+
+test('a StreetLED lantern takes the side entry version of its pole', async () => {
+  const {sideEntryOnly} = await import('../src/takeoff.js');
+  const catalogue = [
+    {sku: 'SIDE', description: 'Lincoln 5.5m MH, 1.5m Side Entry Outreach, 8.4m OL, IGM, Painted'},
+    {sku: 'TOP', description: 'Lincoln 5.5m MH, 1.5m Top Entry Outreach, 8.4m OL, IGM, Painted'},
+    {sku: 'URD', description: 'SP Ausnet URD 5.5m MH Octagonal Column c/w 500mm Curve'},
+  ];
+  const picked = sideEntryOnly({sku: '', confidence: 'Low', candidates: ['SIDE', 'TOP'], reason: 'Several active SKUs fit equally'}, catalogue);
+  assert.equal(picked.sku, 'SIDE');
+  assert.deepEqual(picked.candidates, []);
+  const topOnly = sideEntryOnly({sku: 'TOP', confidence: 'Medium', candidates: [], reason: 'x'}, catalogue);
+  assert.equal(topOnly.sku, '');
+  const untouched = {sku: '', confidence: 'Low', candidates: ['URD'], reason: 'x'};
+  assert.equal(sideEntryOnly(untouched, catalogue), untouched);
+});
