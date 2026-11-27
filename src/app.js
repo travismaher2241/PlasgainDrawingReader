@@ -2,7 +2,7 @@ import * as pdf from 'pdfjs-dist';
 import worker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import {readSheet} from 'read-excel-file/browser';
 import {
-  accessoriesFor, catalogueFromRows, notSupplied, sideEntryOnly, compareRevision, exclusionTerms, extractRows, extractScheduleRows, list, matchItem, normalize,
+  accessoriesFor, catalogueFromRows, newLightsOnExistingPoles, notSupplied, sideEntryOnly, compareRevision, exclusionTerms, extractRows, extractScheduleRows, list, matchItem, normalize,
   packs, parseTitleBlock, quoteCsv, quoteLines, readCatalogue, reconcile,
 } from './takeoff.js';
 import {existingPoleLabels, findSymbol, labelSchedule, legendTemplates, pairLabels, pathPrimitives, poleLabels, sameTemplate} from './symbols.js';
@@ -725,8 +725,17 @@ byId('scan').onclick = async () => {
       if (result.dropped) notes.push(result.dropped + ' AI items on p' + page.number + ' had no source wording and were discarded');
       // Legend symbol counts replace the reader's own guesses at lights and poles on that sheet;
       // a written schedule still wins.
-      const counted = legendRows.get(page.id) || [];
+      const counted = [...(legendRows.get(page.id) || [])];
       const lightsCounted = counted.some(row => row.source === 'counted');
+      // New lanterns on existing poles have no plan symbol: they come from
+      // "(N)" notes and callouts, and replace any AI line for the same light.
+      const fitted = newLightsOnExistingPoles(page.lines).map(light => ({pageId: page.id, point: light.point, points: [], approximate: true,
+        source: light.source === 'notes' ? 'callout' : light.source, location: 'notes', locationNote: light.source === 'notes' ? 'general note' : 'plan callouts',
+        quantity: light.quantity, unit: 'ea', baseNote: '', typical: false, extractConfidence: 'Medium', text: light.text.slice(0, 300), description: light.description,
+        extractNote: 'New light on existing poles (marked (N)): ' + (light.note || light.quantity + ' new') + '. No light symbol is drawn for these; existing (E) and removed (R) lights are not supplied.'}));
+      if (fitted.length) notes.push(page.file + ' p' + page.number + ': ' + fitted.map(row => row.quantity + ' × ' + row.description + ' (new, on existing poles)').join(', '));
+      counted.push(...fitted);
+      const fittedWatts = fitted.map(row => row.description.match(/\d+(?:\.\d+)?\s*W\b/i)?.[0].replace(/\s+/g, '').toUpperCase()).filter(Boolean);
       // Cables (from cable schedules and callouts) are not part of the takeoff.
       // So is anything Plasgain doesn't supply (HV and substation equipment,
       // pillars, service pits, bollards, bores, conduit for now), and the
@@ -735,7 +744,9 @@ byId('scan').onclick = async () => {
       const leftOut = [...new Set(left.filter(Boolean))];
       if (leftOut.length) notes.push(page.file + ' p' + page.number + ': left out ' + left.filter(Boolean).length + ' item' + (left.filter(Boolean).length > 1 ? 's' : '') +
         ' Plasgain does not supply or that only check the count (' + leftOut.join(', ') + ')');
-      const kept = result.rows.filter((row, index) => !left[index] && !CABLE.test(row.description + ' ' + (row.text || '')) &&
+      const sameFitted = row => LIGHT_OR_POLE.test(row.description) &&
+        fittedWatts.some(watts => (row.description + ' ' + (row.text || '')).replace(/\s+/g, '').toUpperCase().includes(watts));
+      const kept = result.rows.filter((row, index) => !left[index] && !sameFitted(row) && !CABLE.test(row.description + ' ' + (row.text || '')) &&
         (!lightsCounted || row.source === 'schedule' || !LIGHT_OR_POLE.test(row.description)));
       for (const row of [...counted, ...kept]) next.push({...row, id: nextRowId++, pageId: page.id});
     }

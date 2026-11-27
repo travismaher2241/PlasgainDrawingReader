@@ -278,3 +278,23 @@ test('a StreetLED lantern takes the side entry version of its pole', async () =>
   const untouched = {sku: '', confidence: 'Low', candidates: ['URD'], reason: 'x'};
   assert.equal(sideEntryOnly(untouched, catalogue), untouched);
 });
+
+test('new lanterns on existing poles are read from (N) notes, one per pole listed', async () => {
+  const {newLightsOnExistingPoles} = await import('../src/takeoff.js');
+  const line = (y, cells) => ({text: cells.map(cell => cell[1]).join(' '), point: [cells[0][0], y], cells: cells.map(([x, text]) => ({x, text}))});
+  const lines = [
+    line(1520, [[400, '150NB'], [2173, '19. ON (E) BID PO 2602171681, (E) BID PO 2602171682, (E) BID PO 2602171683 REMOVE (E) 1x70W LED LANTERN AND REPLACE']]),
+    line(1515, [[116, '500'], [553, '100NB']]),
+    line(1512, [[940, 'W'], [2188, 'WITH (N) 1x150W LED LANTERN AS SHOWN. REFER TO BOUNDARY ROAD UNDERGROUNDING']]),
+    line(1500, [[2173, '20. UPDATE LABEL ON (E)BID PO 2602089725 AS PART OF THIS STAGE']]),
+    line(1800, [[291, '(R) 1x70W LED LANTERN (N) INSTALL 1x150W LED LANTERN AS SHOWN']]),
+  ];
+  const [light, ...rest] = newLightsOnExistingPoles(lines);
+  assert.equal(rest.length, 0, 'the note wins over the plan callout');
+  assert.equal(light.description, '150W LED LANTERN');
+  assert.equal(light.quantity, 3);
+  assert.deepEqual(light.poles, ['2602171681', '2602171682', '2602171683']);
+  // Without the note, each (N) callout counts; (E) and (R) lights never do.
+  const callouts = newLightsOnExistingPoles([lines[4], line(1700, [[500, '(N) INSTALL 1x150W LED LANTERN AS SHOWN']]), line(1600, [[500, '(E) 2x70W LED LANTERN']])]);
+  assert.deepEqual(callouts.map(row => [row.description, row.quantity]), [['150W LED LANTERN', 2]]);
+});
