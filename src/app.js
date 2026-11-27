@@ -654,7 +654,7 @@ function measureTrench(page, notes) {
     locationNote: 'conduit runs (legend: ' + legend.map(entry => entry.label).join('; ') + ')', quantity: metres, unit: 'm', baseNote: '',
     typical: false, extractConfidence: 'Medium', text: 'CABLE CONDUIT runs, measured', description: 'Trench length',
     extractNote: 'Measured ' + metres + ' m of conduit runs with the ' + v.scale.source + '. Conduits side by side in one trench are counted once. ' +
-      'Check the green trench lines on the drawing; conduit in details and sections away from the plan is left out.'};
+      'Check the blue trench lines on the drawing; conduit in details and sections away from the plan is left out.'};
 }
 
 // Cross-checks the symbol count against the sheet's label schedule, where each
