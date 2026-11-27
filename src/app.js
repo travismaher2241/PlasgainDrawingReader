@@ -2,7 +2,7 @@ import * as pdf from 'pdfjs-dist';
 import worker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import {readSheet} from 'read-excel-file/browser';
 import {
-  accessoriesFor, catalogueFromRows, compareRevision, exclusionTerms, extractRows, extractScheduleRows, list, matchItem, normalize,
+  accessoriesFor, catalogueFromRows, isHvEquipment, compareRevision, exclusionTerms, extractRows, extractScheduleRows, list, matchItem, normalize,
   packs, parseTitleBlock, quoteCsv, quoteLines, readCatalogue, reconcile,
 } from './takeoff.js';
 import {existingPoleLabels, findSymbol, labelSchedule, legendTemplates, pairLabels, pathPrimitives, poleLabels, sameTemplate} from './symbols.js';
@@ -727,7 +727,10 @@ byId('scan').onclick = async () => {
       const counted = legendRows.get(page.id) || [];
       const lightsCounted = counted.some(row => row.source === 'counted');
       // Cables (from cable schedules and callouts) are not part of the takeoff.
-      const kept = result.rows.filter(row => !CABLE.test(row.description + ' ' + (row.text || '')) &&
+      // So is high-voltage and substation equipment, which the network operator supplies.
+      const hv = result.rows.filter(isHvEquipment);
+      if (hv.length) notes.push('Left out ' + hv.length + ' HV or substation item' + (hv.length > 1 ? 's' : '') + ' on ' + page.file + ' p' + page.number + ' (not Plasgain supply)');
+      const kept = result.rows.filter(row => !hv.includes(row) && !CABLE.test(row.description + ' ' + (row.text || '')) &&
         (!lightsCounted || row.source === 'schedule' || !LIGHT_OR_POLE.test(row.description)));
       for (const row of [...counted, ...kept]) next.push({...row, id: nextRowId++, pageId: page.id});
     }

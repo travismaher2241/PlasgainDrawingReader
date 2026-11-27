@@ -239,3 +239,15 @@ test('matching: drawing wording links to Item List wording', () => {
   assert.equal(pole.sku, '');
   assert.deepEqual(pole.candidates.sort(), ['C5A', 'C5P']);
 });
+
+test('HV and substation equipment is recognised; lighting and pillars are not', async () => {
+  const {isHvEquipment} = await import('../src/takeoff.js');
+  for (const description of ['HV ELBOW CONNECTOR 400A', 'HV SWITCH (MOTORISED)', 'TRANSFORMER 315 kVA', 'TRANSFORMER 315kVA', '1000 AMP ISOLATOR STRIP',
+    '630 AMP FEEDER STRIP 200A', 'HV FUSEGEAR 16 AMP DIN', 'HV INSULATED CAPS', 'Kiosk substation', 'High voltage switchgear']) {
+    assert.ok(isHvEquipment({description}), description);
+  }
+  assert.ok(isHvEquipment({description: 'Some item', locationNote: 'LABEL SCHEDULE (BID SS 2602509904)'}));
+  for (const description of ['SYLVANIA STREET LED "14W" LANTERN', '5.5m Lincoln pole', 'PILLAR ADJ LOT 1225', 'P/L POLE', 'Pit and lid 600x600']) {
+    assert.ok(!isHvEquipment({description, locationNote: 'plan view near HV cable'}), description);
+  }
+});
