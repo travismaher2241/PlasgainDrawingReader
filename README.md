@@ -79,6 +79,11 @@ resolution step by step until each page fits.
 
 ## How a takeoff works
 
+The main screen is only the takeoff. The Item List upload, saved aliases,
+exclusion rules and correction log are set up once under *Settings* at the
+bottom of the sidebar. If no Item List is loaded, the takeoff shows a note
+linking there.
+
 1. **Upload drawings.** Each PDF page becomes a sheet card. The title block's
    project, drawing number, revision and status are filled in where visible,
    and you can edit them. Cover, register and general-notes sheets are
@@ -141,7 +146,7 @@ resolution step by step until each page fits.
    the drawing equally fits (for example "150W LED LANTERN" with and without
    an Aeroscreen) is for that job only and isn't saved, since it depends on
    what the customer wants. Aliases, exclusion rules
-   and the correction log are under *Item List, aliases & exclusion rules* and
+   and the correction log are under *Settings* (bottom of the sidebar) and
    are shared by everyone using the server.
 9. **Export.** *Export quote CSV* combines verified rows into one line per SKU,
    with the project, drawing numbers, revisions and status at the top, plus

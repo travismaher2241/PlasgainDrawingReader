@@ -38,7 +38,10 @@ function element(tag, content, className) {
   return node;
 }
 
-const status = message => { byId('status').textContent = message; };
+const status = message => {
+  byId('status').textContent = message;
+  byId('settings-status').textContent = message;
+};
 
 let passcode = '';
 try { passcode = localStorage.getItem('plasgain-passcode') || ''; } catch { /* storage unavailable */ }
@@ -109,6 +112,7 @@ function renderLibrary() {
     itemList.items.length + ' active SKUs from ' + (itemList.fileName || 'Item List') +
       (itemList.uploadedAt ? ', uploaded ' + new Date(itemList.uploadedAt).toLocaleDateString('en-AU') : '') :
     'Required for SKU matching';
+  byId('itemlist-note').hidden = itemList.items.length > 0;
   byId('library-summary').textContent = Object.keys(aliases).length + ' aliases · ' + exclusions.length + ' exclusion rules · ' +
     corrections.length + ' logged corrections' + (serverLibrary ? ' · shared with the team' : ' · saved in this browser only');
   const box = byId('aliases');
