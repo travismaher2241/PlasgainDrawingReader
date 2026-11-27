@@ -309,7 +309,8 @@ export function isHvEquipment(row) {
 
 // Items Plasgain does not supply, which the reading leaves out altogether:
 // pillars, service and temporary pits, bollards and protective posts, bores,
-// and (until conduit is added to the Item List) conduit runs. The trench
+// marker tape, cover slabs (quoted from the trench length instead), and
+// (until conduit is added to the Item List) conduit runs. The trench
 // length line is measured separately and is kept.
 const NOT_SUPPLIED = [
   [/\bpillars?\b/i, 'pillar'],
@@ -318,6 +319,9 @@ const NOT_SUPPLIED = [
   [/\bbollards?\b|\bprotective\s+posts?\b/i, 'bollard or protective post'],
   [/\bbores?\b|\bboring\b|\bunder[\s-]*bore\b/i, 'bore'],
   [/\bconduits?\b|\b\d+\s*NB\b/i, 'conduit'],
+  [/\bmarker\s+tapes?\b|\bwarning\s+tapes?\b/i, 'marker tape'],
+  // Cover is quoted from the trench length, in the size the customer picks.
+  [/\bcover\s+(?:slabs?|strips?)\b|\bcable\s+covers?\b|\bslab\s+covers?\b/i, 'cover slab'],
 ];
 
 // Returns why a row is not Plasgain supply ('' when it is).

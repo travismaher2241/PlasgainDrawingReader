@@ -212,6 +212,7 @@ These are left out of the takeoff altogether. The AI reader is told to skip them
 - HV and substation equipment: transformers, kiosks, HV switches, HV fusegear, elbow connectors, insulated caps, isolator and feeder strips, and anything in a substation ("BID SS") schedule;
 - pillars, service pits and temporary pits;
 - bollards and protective posts, and bores;
+- marker tape and cover slabs. Cover is quoted from the trench length in whatever size the customer picks;
 - conduit, until conduit is added to the Item List. The measured trench length line is kept.
 
 The LABEL SCHEDULE table is only a cross-check on the light count, so its rows never become takeoff lines.

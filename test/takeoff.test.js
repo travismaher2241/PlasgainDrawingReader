@@ -256,9 +256,9 @@ test('items Plasgain does not supply are recognised', async () => {
   const {notSupplied} = await import('../src/takeoff.js');
   const cases = {'PILLAR (TYPE 12)': 'pillar', 'SERVICE PIT': 'service pit', 'TEMP PIT': 'temporary pit', 'TEMPORARY PIT': 'temporary pit',
     'PROTECTIVE POST (BOLLARD)': 'bollard or protective post', 'PROTECTIVE POSTS': 'bollard or protective post', '180 PE (BORE)': 'bore',
-    '150NB CONDUIT (SPARE)': 'conduit', '150NB': 'conduit', 'TRANSFORMER 315kVA': 'HV or substation equipment'};
+    '150NB CONDUIT (SPARE)': 'conduit', '150NB': 'conduit', 'MARKER TAPE': 'marker tape', 'MARKER TAPE, MINIMUM OVERHANG 50mm': 'marker tape', 'COVER SLABS': 'cover slab', 'TRANSFORMER 315kVA': 'HV or substation equipment'};
   for (const [description, why] of Object.entries(cases)) assert.equal(notSupplied({description}), why, description);
-  for (const description of ['SYLVANIA STREET LED "14W" LANTERN', '5.5m Lincoln pole', 'Pit Electrical Round 390mm', 'COVER SLABS', 'Trench length']) {
+  for (const description of ['SYLVANIA STREET LED "14W" LANTERN', '5.5m Lincoln pole', 'Pit Electrical Round 390mm', 'Trench length']) {
     assert.equal(notSupplied({description}), '', description);
   }
 });
