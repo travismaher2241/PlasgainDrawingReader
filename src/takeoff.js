@@ -437,7 +437,13 @@ export function matchItem(description, catalogue, aliases = {}, options = {}) {
   if (!label) return none('Low', 'No drawing description');
 
   const userAlias = aliases[label];
-  const aliased = userAlias && catalogue.find(item => item.sku.toLowerCase() === String(userAlias).toLowerCase());
+  let aliased = userAlias && catalogue.find(item => item.sku.toLowerCase() === String(userAlias).toLowerCase());
+  if (aliased) {
+    // An alias saved for wording that fits several items equally (before such
+    // picks stopped being saved) would hide a choice the estimator must make.
+    const unaliased = matchItem(description, catalogue, {}, options);
+    if (unaliased.choice && unaliased.candidates.includes(aliased.sku)) return unaliased;
+  }
   const labelTokens = label.split(' ');
   const exact = aliased ? [{item: aliased, why: 'Saved correction alias'}] : catalogue.flatMap(item => {
     const hit = identifiers(item).find(value => {
@@ -469,7 +475,7 @@ export function matchItem(description, catalogue, aliases = {}, options = {}) {
       reason: why + (orEquivalent ? ' · "Or equivalent" wording on drawing, confirm' : '')};
   }
   if (exact.length > 1) {
-    return {sku: '', confidence: 'Medium', candidates: exact.slice(0, 3).map(entry => entry.item.sku),
+    return {sku: '', confidence: 'Medium', candidates: exact.slice(0, 3).map(entry => entry.item.sku), choice: true,
       reason: 'Several active SKUs share this code or description'};
   }
 
@@ -541,7 +547,10 @@ export function matchItem(description, catalogue, aliases = {}, options = {}) {
     entry.item.sku + ' ' + deciding.map(kind => itemSpecs(entry.item)[kind] ? describeSpec(kind, itemSpecs(entry.item)[kind]) : '').join(' ').trim()).join(' / ') : '';
   const reason = generic ? 'Generic label, choose from candidates' + (missingNote ? ' · ' + missingNote : '') :
     missingNote || (ties.length > 1 || rivals.length ? 'Several active SKUs fit equally, choose one' : 'Partial description match, check type and specs');
-  return {sku: '', confidence: best.typeScore >= 0.8 && !generic ? 'Medium' : 'Low', candidates, reason, missing: deciding};
+  // `choice`: the drawing fits several items and doesn't say which, so the
+  // estimator decides each job (with the customer) and the pick isn't learnt.
+  const choice = candidates.length > 1 && (ties.length > 1 || rivals.length > 0 || deciding.length > 0);
+  return {sku: '', confidence: best.typeScore >= 0.8 && !generic ? 'Medium' : 'Low', candidates, reason, missing: deciding, choice};
 }
 
 const wordCache = new WeakMap();
