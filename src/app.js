@@ -995,6 +995,7 @@ function applyMatch(row) {
   row.matchConfidence = row.skuOverride ? 'High' : result.confidence;
   row.reason = row.skuOverride ? 'SKU chosen by estimator' : result.reason;
   row.candidates = result.candidates || [];
+  row.openChoice = !!result.choice;
   row.matchExcluded = !!result.excluded && !row.skuOverride;
 }
 
@@ -1017,6 +1018,12 @@ async function chooseSku(row, sku) {
   reconcile(rows, pages);
   renderReview();
   if (!item || item.sku === row.autoSku || item.sku === previous) return;
+  if (row.openChoice && row.candidates.some(sku => sku.toLowerCase() === item.sku.toLowerCase())) {
+    // The drawing doesn't say which of these it is: a pick for this job only.
+    status('Chose ' + item.sku + ' for this row only. The drawing does not say which of ' + row.candidates.join(', ') +
+      ' it is, so it is not saved and will be asked again on the next drawing.');
+    return;
+  }
   // Learn from the correction: log it and remember the drawing wording.
   const page = pages[row.pageId];
   const label = normalize(row.description);

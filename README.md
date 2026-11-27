@@ -137,7 +137,10 @@ resolution step by step until each page fits.
    SKU by typeahead or candidate chip, add or remove rows, override an
    automatic exclusion, and tick Verified.
 8. **Learning loop.** Choosing a different SKU logs the correction and saves
-   the drawing wording as an alias for future matching. Aliases, exclusion rules
+   the drawing wording as an alias for future matching. A pick between items
+   the drawing equally fits (for example "150W LED LANTERN" with and without
+   an Aeroscreen) is for that job only and isn't saved, since it depends on
+   what the customer wants. Aliases, exclusion rules
    and the correction log are under *Item List, aliases & exclusion rules* and
    are shared by everyone using the server.
 9. **Export.** *Export quote CSV* combines verified rows into one line per SKU,

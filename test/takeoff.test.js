@@ -298,3 +298,21 @@ test('new lanterns on existing poles are read from (N) notes, one per pole liste
   const callouts = newLightsOnExistingPoles([lines[4], line(1700, [[500, '(N) INSTALL 1x150W LED LANTERN AS SHOWN']]), line(1600, [[500, '(E) 2x70W LED LANTERN']])]);
   assert.deepEqual(callouts.map(row => [row.description, row.quantity]), [['150W LED LANTERN', 2]]);
 });
+
+test('matching: items the drawing fits equally are an open choice, a clear match is not', () => {
+  const items = readCatalogue([
+    'Part Number,Description,Status,Category',
+    'STD,"RoadLED Midi 150 Watt, LED, Standard Visor",Active,Lantern',
+    'AERO,"RoadLED Midi 150 Watt, LED, Aeroscreen Visor",Active,Lantern',
+    'ARM,Outreach arm 1.5m,Active,Outreach',
+  ].join('\r\n'));
+  const open = matchItem('150W LED LANTERN', items);
+  assert.equal(open.sku, '');
+  assert.equal(open.choice, true);
+  assert.ok(open.candidates.includes('STD') && open.candidates.includes('AERO'));
+  const named = matchItem('150W LED LANTERN AEROSCREEN', items);
+  assert.equal(named.sku, 'AERO');
+  assert.ok(!named.choice);
+  // An older saved alias for the open wording doesn't hide the choice.
+  assert.equal(matchItem('150W LED LANTERN', items, {'150w led lantern': 'AERO'}).choice, true);
+});
