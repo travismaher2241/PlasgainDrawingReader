@@ -8,6 +8,7 @@ import {
 import {existingPoleLabels, findSymbol, labelSchedule, legendTemplates, pairLabels, pathPrimitives, poleLabels, sameTemplate} from './symbols.js';
 import {MARK_STYLES, drawKey, drawMarkup, keySize} from './markup.js';
 import {zipFiles} from './zip.js';
+import {KIND_LABELS, pageKind} from './pagekind.js';
 import {conduitLegend, conduitRuns, sheetScale, standardConduit, strokedSegments} from './conduit.js';
 import './style.css';
 
@@ -68,6 +69,7 @@ function syncButtons() {
   byId('export').disabled = busy || !quoteLines(rows, catalogue, pages).length;
   byId('export-detail').disabled = busy || !rows.length;
   byId('download-markup').disabled = busy || !pages.length;
+  byId('count-symbol').disabled = busy || !currentPage;
   byId('page-prev').disabled = !currentPage || pages.indexOf(currentPage) <= 0;
   byId('page-next').disabled = !currentPage || pages.indexOf(currentPage) >= pages.length - 1;
 }
@@ -209,6 +211,7 @@ async function renderPage(page, canvas, width) {
 }
 
 async function showPage(page, row) {
+  if (count && count.page !== page) { cancelCount(); }
   currentPage = page;
   currentRow = row;
   byId('page-title').textContent = page.file + ' · p' + page.number + (page.meta.drawingNumber ? ' · ' + page.meta.drawingNumber : '');
@@ -220,6 +223,7 @@ async function showPage(page, row) {
   syncButtons();
   try {
     const viewport = await renderPage(page, canvas, 1800 * Math.min(zoom, 2.5));
+    figure.viewport = viewport;
     const markup = pageMarkup(page);
     drawMarkup(canvas.getContext('2d'), viewport, markup);
     if ((markup.groups.length || markup.labels.length || markup.trench.length) && figure.isConnected) {
@@ -240,6 +244,7 @@ async function showPage(page, row) {
       figure.append(marker);
       if (index === 0 && figure.isConnected) marker.scrollIntoView({block: 'center', inline: 'center'});
     });
+    if (count?.page === page) attachCount(figure);
   } catch (error) {
     if (figure.isConnected) figure.replaceChildren(element('p', 'Page could not be rendered. ' + error.message));
   }
@@ -392,6 +397,12 @@ function addPageCard(page) {
   check.onchange = () => { page.selected = check.checked; card.classList.toggle('skipped', !check.checked); syncButtons(); };
   page.checkbox = check;
   label.append(check, element('span', 'Page ' + page.number));
+  if (page.kind) {
+    const kind = KIND_LABELS[page.kind.kind];
+    const badge = element('span', kind.badge, 'kind kind-' + page.kind.kind);
+    badge.title = kind.note;
+    label.append(badge);
+  }
   const meta = element('div', null, 'meta');
   meta.append(metaField(page, 'drawingNumber', 'Drawing no.'), metaField(page, 'revision', 'Rev'), metaField(page, 'status', 'Status'));
   page.card = card;
@@ -434,6 +445,7 @@ byId('drawings').onchange = async event => {
           const page = {id: pages.length, file: file.name, number, selected: true, pdf: await document.getPage(number), meta: {}};
           page.lines = await readLines(page);
           page.meta = titleBlockFromLines(page, page.lines);
+          try { page.kind = pageKind(await page.pdf.getOperatorList(), pdf.OPS, page.pdf.view, page.lines.length); } catch { page.kind = null; }
           // Cover sheets and pages with only notes usually have no quantities.
           if (/\b(cover sheet|drawing (?:register|schedule|list)|general notes|standard notes|terms and conditions)\b/i.test(page.lines.slice(0, 40).map(line => line.text).join(' ')) &&
               !page.lines.some(line => /\bqty\b|\bquantity\b/i.test(line.text))) page.selected = false;
@@ -449,8 +461,11 @@ byId('drawings').onchange = async event => {
     }
     if (!currentPage && pages.length) void showPage(pages[0]);
     const skipped = pages.filter(page => !page.selected).length;
+    const scanned = pages.filter(page => page.kind?.kind === 'scanned');
     status(failures.length ? failures.join(' · ') : pages.length + ' pages loaded.' +
-      (skipped ? ' ' + skipped + ' look like cover or notes sheets and were deselected; tick them to include.' : ''));
+      (skipped ? ' ' + skipped + ' look like cover or notes sheets and were deselected; tick them to include.' : '') +
+      (scanned.length ? ' ' + (scanned.length === pages.length ? (pages.length > 1 ? 'All pages are scanned images' : 'This page is a scanned image')
+        : scanned.length > 1 ? scanned.length + ' pages are scanned images' : '1 page is a scanned image') + ', so symbols and trench cannot be measured from linework there: the AI reads them, and Count a symbol (in the viewer) counts a symbol you pick.' : ''));
   } finally {
     event.target.disabled = false;
     loading = false;
@@ -705,6 +720,7 @@ byId('scan').onclick = async () => {
         result = readPageFromText(page);
       }
       if (!page.lines.length && !health.ai) notes.push('No readable text on ' + page.file + ' p' + page.number + ', review it manually');
+      if (page.kind?.kind === 'scanned') notes.push(page.file + ' p' + page.number + ' is a scanned image, so its symbols were not counted from linework; check the counts or use Count a symbol');
       if (result.dropped) notes.push(result.dropped + ' AI items on p' + page.number + ' had no source wording and were discarded');
       // Legend symbol counts replace the reader's own guesses at lights and poles on that sheet;
       // a written schedule still wins.
@@ -716,6 +732,8 @@ byId('scan').onclick = async () => {
       for (const row of [...counted, ...kept]) next.push({...row, id: nextRowId++, pageId: page.id});
     }
     next.forEach(applyMatch);
+    // Symbols counted by hand on a sheet are kept through a new reading.
+    for (const row of rows) if (row.picked && selected.includes(pages[row.pageId])) next.push(row);
     rows = reconcile(next, pages);
     renderReview();
     status(rows.length + ' items found on ' + selected.length + ' pages.' + (notes.length ? ' ' + notes.join('. ') + '.' : '') +
@@ -729,6 +747,217 @@ byId('scan').onclick = async () => {
     syncButtons();
   }
 };
+
+/* ------------------------------------------------------ count a symbol */
+
+// For scanned sheets, where there is no linework to match: the estimator
+// drags a box around one symbol, the app looks for the same symbol across the
+// sheet image (at any angle), and the estimator ticks off the results before
+// they become a takeoff row. Markers and key then work as for legend counts.
+const COUNT_PX = 4000; // long side of the sheet image searched
+const WEAKEST = 0.45; // weakest match the search returns
+let count = null; // {page, phase: 'pick' | 'searching' | 'review', matches, rejected, added, threshold, name}
+let countWorker = null;
+
+byId('count-symbol').onclick = () => {
+  if (!currentPage) return;
+  cancelCount();
+  count = {page: currentPage, phase: 'pick', matches: [], rejected: new Set(), added: [], threshold: 0.78, name: ''};
+  renderCountPanel();
+  refreshCount();
+  status('Drag a box around one symbol on the drawing.');
+};
+
+function cancelCount() {
+  if (count?.phase === 'searching') { countWorker?.terminate(); countWorker = null; }
+  count = null;
+  renderCountPanel();
+  refreshCount();
+}
+
+const viewerFigure = () => byId('viewer').querySelector('figure');
+
+function refreshCount() {
+  const figure = viewerFigure();
+  if (!figure) return;
+  if (count?.page === currentPage && figure.viewport) attachCount(figure);
+  else {
+    figure.classList.remove('picking', 'reviewing');
+    figure.onpointerdown = figure.onclick = null;
+    figure.querySelectorAll('.hit, .pick-box').forEach(node => node.remove());
+  }
+}
+
+function attachCount(figure) {
+  const viewport = figure.viewport;
+  figure.classList.toggle('picking', count.phase === 'pick');
+  figure.classList.toggle('reviewing', count.phase === 'review');
+  const fraction = (event, rect) => [Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width)), Math.min(1, Math.max(0, (event.clientY - rect.top) / rect.height))];
+  figure.onpointerdown = event => {
+    if (count?.phase !== 'pick' || event.button !== 0) return;
+    event.preventDefault();
+    const rect = figure.getBoundingClientRect();
+    const start = fraction(event, rect);
+    let end = start;
+    const box = element('div', null, 'pick-box');
+    figure.append(box);
+    const area = () => ({x: Math.min(start[0], end[0]), y: Math.min(start[1], end[1]), w: Math.abs(end[0] - start[0]), h: Math.abs(end[1] - start[1])});
+    figure.setPointerCapture(event.pointerId);
+    figure.onpointermove = move => {
+      end = fraction(move, rect);
+      const a = area();
+      Object.assign(box.style, {left: a.x * 100 + '%', top: a.y * 100 + '%', width: a.w * 100 + '%', height: a.h * 100 + '%'});
+    };
+    figure.onpointerup = () => {
+      figure.onpointermove = figure.onpointerup = null;
+      box.remove();
+      const a = area();
+      if (a.w * rect.width < 6 || a.h * rect.height < 6) { status('Drag a box around one whole symbol (zoom in first if it is small).'); return; }
+      void searchSymbol(a);
+    };
+  };
+  figure.onclick = event => {
+    if (count?.phase !== 'review' || event.target !== figure) return;
+    const [fx, fy] = fraction(event, figure.getBoundingClientRect());
+    count.added.push(viewport.convertToPdfPoint(fx * viewport.width, fy * viewport.height));
+    placeHits();
+    renderCountPanel();
+  };
+  placeHits();
+}
+
+const countedPoints = () => [...count.matches.filter((match, index) => match.score >= count.threshold && !count.rejected.has(index)).map(match => match.point), ...count.added];
+
+function placeHits() {
+  const figure = viewerFigure();
+  if (!figure?.viewport) return;
+  figure.querySelectorAll('.hit').forEach(node => node.remove());
+  if (count?.page !== currentPage || count.phase !== 'review') return;
+  const viewport = figure.viewport;
+  const place = (point, className, title, toggle) => {
+    const [x, y] = viewport.convertToViewportPoint(...point);
+    const hit = element('button', null, 'hit' + (className ? ' ' + className : ''));
+    hit.type = 'button';
+    hit.title = title;
+    hit.setAttribute('aria-label', title);
+    hit.style.left = (x / viewport.width * 100) + '%';
+    hit.style.top = (y / viewport.height * 100) + '%';
+    hit.onclick = event => { event.stopPropagation(); toggle(); placeHits(); renderCountPanel(); };
+    figure.append(hit);
+  };
+  count.matches.forEach((match, index) => {
+    if (match.score < count.threshold) return;
+    const left = count.rejected.has(index);
+    place(match.point, left ? 'rejected' : '', (left ? 'Left out, click to count it' : 'Counted, click to leave it out') + ' (match ' + Math.round(match.score * 100) + '%)',
+      () => left ? count.rejected.delete(index) : count.rejected.add(index));
+  });
+  count.added.forEach((point, index) => place(point, 'added', 'Added by hand, click to remove', () => count.added.splice(index, 1)));
+}
+
+function runCount(image, box) {
+  countWorker ??= new Worker(new URL('./rastercount.worker.js', import.meta.url), {type: 'module'});
+  return new Promise((resolve, reject) => {
+    countWorker.onmessage = ({data}) => data.error ? reject(new Error(data.error)) : resolve(data.result);
+    countWorker.onerror = event => reject(new Error(event.message || 'the search stopped'));
+    countWorker.postMessage({image, box, minScore: WEAKEST}, [image.data.buffer]);
+  });
+}
+
+async function searchSymbol(area) {
+  const job = count;
+  job.phase = 'searching';
+  renderCountPanel();
+  refreshCount();
+  status('Looking for matching symbols on this sheet…');
+  try {
+    const initial = job.page.pdf.getViewport({scale: 1});
+    const canvas = element('canvas');
+    const viewport = await renderPage(job.page, canvas, COUNT_PX * initial.width / Math.max(initial.width, initial.height));
+    const {width, height} = canvas;
+    const rgba = canvas.getContext('2d').getImageData(0, 0, width, height).data;
+    canvas.width = canvas.height = 0;
+    const grey = new Uint8Array(width * height);
+    for (let i = 0; i < grey.length; i++) grey[i] = (rgba[i * 4] * 299 + rgba[i * 4 + 1] * 587 + rgba[i * 4 + 2] * 114) / 1000;
+    const result = await runCount({width, height, data: grey}, {x: area.x * width, y: area.y * height, w: area.w * width, h: area.h * height});
+    if (count !== job) return;
+    job.matches = result.matches.map(match => ({point: viewport.convertToPdfPoint(match.x, match.y), score: match.score}));
+    job.phase = job.matches.length ? 'review' : 'pick';
+    const shown = job.matches.filter(match => match.score >= job.threshold).length;
+    status(job.matches.length ? 'Found ' + shown + ' likely matches. Check each circle on the drawing before adding the count.' : 'No clear symbol in that box. Drag a box around one symbol.');
+  } catch (error) {
+    if (count !== job) return;
+    job.phase = 'pick';
+    status('Could not search the sheet. ' + error.message);
+  }
+  renderCountPanel();
+  refreshCount();
+}
+
+function renderCountPanel() {
+  const panel = byId('count-panel');
+  panel.hidden = !count;
+  if (!count) { panel.replaceChildren(); return; }
+  const cancel = element('button', 'Cancel', 'secondary small');
+  cancel.onclick = cancelCount;
+  if (count.phase === 'pick') {
+    panel.replaceChildren(element('p', 'Drag a box around one symbol on the drawing (zoom in first if it is small). The app then looks for the same symbol across this sheet, at any angle.'), cancel);
+    return;
+  }
+  if (count.phase === 'searching') {
+    panel.replaceChildren(element('p', 'Looking for matching symbols on this sheet… this can take up to a minute on a large sheet.'), cancel);
+    return;
+  }
+  const total = countedPoints().length;
+  const strictness = element('input');
+  strictness.type = 'range';
+  strictness.min = String(WEAKEST);
+  strictness.max = '1';
+  strictness.step = '0.01';
+  strictness.value = String(count.threshold);
+  const totalText = element('strong', total + ' counted');
+  strictness.oninput = () => {
+    count.threshold = Number(strictness.value);
+    totalText.textContent = countedPoints().length + ' counted';
+    placeHits();
+  };
+  const strictLabel = element('label', 'Strictness');
+  strictLabel.title = 'Lower it to show weaker matches, raise it to hide doubtful ones';
+  strictLabel.append(strictness);
+  const name = element('input');
+  name.type = 'text';
+  name.placeholder = 'What is it? e.g. 14W LED lantern';
+  name.value = count.name;
+  name.oninput = () => { count.name = name.value; };
+  const add = element('button', 'Add to takeoff', 'small');
+  add.disabled = !total;
+  add.onclick = addCountedRow;
+  const again = element('button', 'Pick again', 'secondary small');
+  again.onclick = () => { Object.assign(count, {phase: 'pick', matches: [], rejected: new Set(), added: []}); renderCountPanel(); refreshCount(); };
+  panel.replaceChildren(element('p', 'Green circles are counted. Click a circle to leave it out, or click the drawing to add one that was missed (blue). Weak look-alikes in busy areas are common, so check each one.'),
+    totalText, strictLabel, name, add, again, cancel);
+}
+
+function addCountedRow() {
+  const page = count.page;
+  const points = countedPoints();
+  const found = points.length - count.added.length;
+  const left = count.matches.filter((match, index) => match.score >= count.threshold && count.rejected.has(index)).length;
+  const name = count.name.trim() || 'Symbol picked by hand';
+  const row = {id: nextRowId++, pageId: page.id, point: points[0], points, approximate: false, source: 'counted', picked: true, location: 'plan',
+    locationNote: 'symbol picked by hand', quantity: points.length, unit: 'ea', baseNote: '', typical: false, extractConfidence: 'Medium',
+    text: name, description: name, flags: [],
+    extractNote: 'Counted with Count a symbol: ' + found + ' found by the app' + (count.added.length ? ', ' + count.added.length + ' added by hand' : '') +
+      (left ? ', ' + left + ' left out by hand' : '') + '. If the AI also listed this item on this sheet, exclude one of the two.'};
+  applyMatch(row);
+  rows.push(row);
+  rows = reconcile(rows, pages);
+  count = null;
+  renderCountPanel();
+  renderReview();
+  syncButtons();
+  status(points.length + ' × ' + name + ' added to the takeoff. Pick its SKU in Takeoff review.');
+  void showPage(page, row);
+}
 
 /* ------------------------------------------------------------- matching */
 

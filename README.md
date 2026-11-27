@@ -205,6 +205,20 @@ says so.
 
 Cables from cable schedules and callouts are left out of the takeoff.
 
+## CAD and scanned sheets
+
+Each sheet gets a label when it is uploaded, worked out from what the PDF page is made of:
+
+- **CAD**: drawn with vector lines. Legend symbols are counted and the trench is measured from the linework.
+- **Scanned**: one picture covering the page and almost no linework (a scan, or a PDF exported as an image). Nothing can be measured from linework, so only the AI reader reads it. Check its counts, or use Count a symbol.
+- **CAD + image**: linework with a large picture on it. Anything inside the picture is read by the AI only.
+
+### Count a symbol
+
+In the Source drawing viewer, **Count a symbol** lets the estimator drag a box around one symbol (zoom in first if it is small). The app searches the sheet image for the same symbol at any angle and mirrored, marks each match with a green circle, and shows how many it counted. Click a circle to leave it out, click the drawing to add one it missed (blue), and use **Strictness** to show weaker or fewer matches. **Add to takeoff** makes a counted row with the name typed in, and its markers and key appear on the marked-up pages like a legend count. Rows counted this way are kept when the pages are read again.
+
+The search runs in the browser (a background worker), takes about 10 to 30 seconds on a full sheet, and works on CAD sheets too. In busy areas, where other linework crosses the symbol, weak look-alikes are common and real copies can score lower, so the circles are suggestions to check, not a final count.
+
 ## Item List format
 
 Upload CSV or Excel (`.xlsx`). Title rows above the headings are skipped.
@@ -228,6 +242,8 @@ Headings are case-insensitive, and common alternatives are accepted (for example
 
 - `src/takeoff.js`: matching, quantity, duplicate, revision, pack and export rules (pure functions)
 - `src/symbols.js`: legend symbol extraction and counting from PDF vector paths
+- `src/pagekind.js`: tells CAD sheets from scanned ones
+- `src/rastercount.js` (run by `src/rastercount.worker.js`): finds copies of a picked symbol in a sheet image
 - `src/grounding.js`: AI output schema and the checks applied to it
 - `src/app.js`: browser app (pdf.js viewer, page picker, review workspace)
 - `server/ostendo.js`: read-only Ostendo client and Item List mapping
