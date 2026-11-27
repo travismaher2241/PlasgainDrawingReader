@@ -28,6 +28,7 @@ Rules:
 - Ignore civil and installation work (trenching, excavation, concrete, backfill, labour, survey, traffic control) and anything marked existing to remain or by others.
 - Ignore high-voltage and substation network equipment: transformers, kiosks, HV switches, HV fusegear, elbow connectors, insulated caps, isolator and feeder strips, and any schedule for a substation asset ("BID SS").
 - Plasgain does not supply these, so do not list them: pillars, service pits, temporary pits, bollards and protective posts, bores, conduit, cables, marker tape and cover slabs.
+- (N) marks new work, (E) existing and (R) removed. A note or callout such as "REPLACE WITH (N) 1x150W LED LANTERN" on listed existing poles is new supply with no plan symbol: quantity = per-pole count x number of poles listed. Never list (E) or (R) items.
 - Do not list rows from a LABEL SCHEDULE (ASSET | LABEL | TYPE) table: it labels assets, it is not a supply list.
 - uncertainty: state the exact reason whenever symbols overlap, sit near the page edge or crop, are hard to read, or conflict with another view on the page. Leave empty if none.
 - box: approximate position as fractions of the full page width and height (origin top left), or null if unsure.

@@ -217,6 +217,10 @@ These are left out of the takeoff altogether. The AI reader is told to skip them
 
 The LABEL SCHEDULE table is only a cross-check on the light count, so its rows never become takeoff lines.
 
+## New lanterns on existing poles
+
+Lights fitted to existing poles have no symbol on the plan. They are only in the wording, for example Masons Quarter p1 note 19: "ON (E) BID PO 2602171681, (E) BID PO 2602171682, (E) BID PO 2602171683 REMOVE (E) 1x70W LED LANTERN AND REPLACE WITH (N) 1x150W LED LANTERN". **(N)** marks new supply, while **(E)** existing and **(R)** removed lights are not supplied. The reading finds numbered notes with an (N) lantern or luminaire and multiplies the per-pole count by the number of BID PO poles listed (3 × 150W here). If no note says it, each (N) plan callout ("(N) INSTALL 1x150W LED LANTERN AS SHOWN") counts once. Only the poles' new lanterns are quoted, not the existing poles. An AI line for the same light is dropped so it isn't counted twice.
+
 ## StreetLED lanterns and outreaches
 
 A StreetLED lantern always mounts on a side entry outreach. When a pole paired with a StreetLED lantern could be either a side entry or a top entry Item List entry, the top entry versions are dropped and the side entry one is picked.

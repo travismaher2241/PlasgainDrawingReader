@@ -307,6 +307,67 @@ export function isHvEquipment(row) {
   return HV_EQUIPMENT.test([row.description, row.text].filter(Boolean).join(' ')) || /\bBID\s*SS\b/i.test(row.locationNote || '');
 }
 
+// New lights fitted to existing poles. They have no light symbol on the
+// plan, so they are only found in the wording: a note such as "ON (E) BID PO
+// 2602171681, (E) BID PO 2602171682, (E) BID PO 2602171683 REMOVE (E) 1x70W
+// LED LANTERN AND REPLACE WITH (N) 1x150W LED LANTERN" means three new 150 W
+// lanterns, one per pole listed. "(N)" marks new supply; "(E)" existing and
+// "(R)" removed items are not supplied. Notes win over the matching plan
+// callouts ("(N) INSTALL 1x150W LED LANTERN AS SHOWN") so nothing is counted
+// twice; callouts are used only when no note says it.
+const NEW_LIGHT = /\(N\)\s*(?:INSTALL\s+|SUPPLY\s+(?:AND\s+INSTALL\s+)?)?(?:(\d+)\s*x\s*)?(\d+(?:\.\d+)?\s*W\b[^.;,()]*?\b(?:LANTERN|LUMINAIRE|STREETLIGHT)S?)\b/gi;
+const NOTE_START = /^\s*\d{1,2}\.\s/;
+
+// Numbered notes joined across wrapped lines: [{text, point}].
+function numberedNotes(lines) {
+  const notes = [];
+  lines.forEach((line, index) => {
+    for (const cell of line.cells || [{x: line.point?.[0] ?? 0, text: line.text}]) {
+      if (!NOTE_START.test(cell.text)) continue;
+      let text = cell.text, y = line.point?.[1] ?? 0;
+      for (const next of lines.slice(index + 1, index + 8)) {
+        const nextY = next.point?.[1] ?? 0;
+        if (Math.abs(y - nextY) > 25) break;
+        const more = (next.cells || []).find(other => other.x >= cell.x - 5 && other.x <= cell.x + 40);
+        if (!more) continue; // another column's text on this line
+        if (NOTE_START.test(more.text)) break;
+        text += ' ' + more.text;
+        y = nextY;
+      }
+      notes.push({text, point: [cell.x, line.point?.[1] ?? 0]});
+    }
+  });
+  return notes;
+}
+
+export function newLightsOnExistingPoles(lines = []) {
+  const found = [];
+  const add = (match, perPole, poles, text, point, source) => {
+    const each = Number(match[1] || 1);
+    const description = match[2].replace(/\s+/g, ' ').trim().toUpperCase();
+    const quantity = each * Math.max(1, poles.length);
+    found.push({description, text, point, quantity, unit: 'ea', source, poles,
+      note: poles.length ? quantity + ' new (' + each + ' on each of ' + poles.length + ' existing poles: ' + poles.join(', ') + ')' : ''});
+  };
+  for (const note of numberedNotes(lines)) {
+    const poles = [...new Set([...note.text.matchAll(/BID\s*PO\s*(\d{6,})/gi)].map(match => match[1]))];
+    for (const match of note.text.matchAll(NEW_LIGHT)) add(match, true, poles, note.text.trim(), note.point, 'notes');
+  }
+  if (found.length) return found;
+  // No note: count each plan callout.
+  const callouts = new Map();
+  for (const line of lines) {
+    for (const match of (line.cells || [line]).flatMap(cell => [...cell.text.matchAll(NEW_LIGHT)])) {
+      const key = match[2].replace(/\s+/g, ' ').trim().toUpperCase();
+      const entry = callouts.get(key) || {match, quantity: 0, text: line.text, point: line.point};
+      entry.quantity += Number(match[1] || 1);
+      callouts.set(key, entry);
+    }
+  }
+  return [...callouts.values()].map(entry => ({description: entry.match[2].replace(/\s+/g, ' ').trim().toUpperCase(), text: entry.text, point: entry.point,
+    quantity: entry.quantity, unit: 'ea', source: 'callout', poles: [], note: entry.quantity + ' plan callouts marked (N)'}));
+}
+
 // Items Plasgain does not supply, which the reading leaves out altogether:
 // pillars, service and temporary pits, bollards and protective posts, bores,
 // marker tape, cover slabs (quoted from the trench length instead), and
